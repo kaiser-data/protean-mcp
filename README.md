@@ -1,18 +1,18 @@
-# Smithery Lattice
+# Chameleon MCP
 
-**The self-assembling MCP network — built on Smithery's registry**
+**The shape-shifting MCP hub — become any server at runtime**
 
-Every other MCP aggregator is static. Smithery Lattice is the first where Claude discovers, inspects, and orchestrates MCPs autonomously at runtime. No config file. No restart. The lattice assembles itself.
+Chameleon MCP is the first MCP server that can *become* any other MCP server. `morph(server_id)` dynamically registers a target server's tools as first-class tools, letting Claude call them directly without extra indirection. No config file. No restart. The hub reshapes itself.
 
-Built entirely on [Smithery's](https://smithery.ai) registry API, skills ecosystem, and WebSocket transport.
+Works standalone with just npm packages — Smithery API key optional for richer discovery.
 
 ---
 
 ## What It Does
 
-Smithery built the registry — thousands of verified MCP servers, ready to use. But connecting them still required humans to configure each one by hand.
+3,000+ MCP servers exist. Connecting to them still required humans to configure each one by hand.
 
-Smithery Lattice changes that. It's the intelligence layer on top of Smithery: Claude scans the lattice for the right server, understands what credentials it needs, weaves in skills to augment its own reasoning, and connects — no config file, no restart required.
+Chameleon changes that. It's the intelligence layer that discovers servers, understands what credentials they need, and — unlike any other hub — *morphs into them*, exposing their tools as if they were native.
 
 ---
 
@@ -20,123 +20,158 @@ Smithery Lattice changes that. It's the intelligence layer on top of Smithery: C
 
 | Tool | What it does |
 |------|-------------|
-| `explore(query, limit)` | Scan the lattice for verified MCP servers |
-| `inspect(qualified_name)` | Reveal a node's full blueprint — tools, credentials, token cost |
-| `inoculate_skill(qualified_name)` | Weave a Smithery skill into Claude's context |
-| `network_status()` | View the current lattice state — nodes explored, skills active, context pressure |
-
-Stage 2 adds `grow(qualified_name, tool_name, arguments, config)` — live tool calls via WebSocket.
+| `search(query, registry, limit)` | Search for MCP servers. registry: 'all'\|'smithery'\|'npm' |
+| `inspect(server_id)` | Show a server's tools, credentials, and token cost |
+| `call(server_id, tool_name, arguments, config)` | Call a tool on any MCP server. Creds auto-loaded from env |
+| `run(package, tool_name, arguments)` | Run a tool from a local npm/pip package directly (no registry lookup) |
+| `fetch(url, intent)` | Fetch a URL and return compressed content (~500 tokens vs ~25K raw) |
+| `auto(task, tool_name, arguments, server_hint, keys)` | Auto-discover and call the best server for a task |
+| `key(env_var, value)` | Save an API key to .env for persistent use |
+| `skill(qualified_name)` | Inject a Smithery skill into Claude's context |
+| `morph(server_id)` | Take a server's form — register its tools directly |
+| `shed()` | Drop current form and remove morphed tools |
+| `status()` | Show current form, active connections, token stats |
 
 ---
 
 ## Setup
 
-### 1. Get a Smithery API key
-
-Go to [smithery.ai/account/api-keys](https://smithery.ai/account/api-keys) and create a key.
-
-### 2. Install dependencies
+### 1. Install dependencies
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Set environment variable
+### 2. Add to Claude Code
 
-```bash
-cp .env.example .env
-# Edit .env and add your key:
-# SMITHERY_API_KEY=your-key-here
-```
-
-### 4. Add to Claude Desktop
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Edit `~/.claude/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "smithery-lattice": {
-      "command": "python",
-      "args": ["/path/to/smithery-lattice/server.py"],
-      "env": {
-        "SMITHERY_API_KEY": "your-key-here"
-      }
+      "command": "/path/to/smithery-lattice/.venv/bin/python",
+      "args": ["/path/to/smithery-lattice/server.py"]
     }
   }
 }
 ```
 
-Replace `/path/to/smithery-lattice/server.py` with the actual path.
+Restart Claude Code to load the server.
+
+### 3. (Optional) Get a Smithery API key
+
+Go to [smithery.ai/account/api-keys](https://smithery.ai/account/api-keys) and create a key.
+
+```
+key("SMITHERY_API_KEY", "your-key")
+```
+
+Enables Smithery registry search (3,000+ verified servers). Without it, npm search still works.
+
+### 4. Save additional credentials (optional)
+
+```
+key("BRAVE_API_KEY", "your-key")
+```
+
+Saved to `.env` and active immediately — auto-loaded on every future call.
 
 ---
 
 ## Demo
 
+### Basic usage
+
 ```
-User: "Explore MCP servers for GitHub"
-→ explore("GitHub") — shows 5 verified nodes with credential requirements
+search("web search")
+→ Exa, Brave, Linkup — Smithery + npm results
 
-User: "Inspect the GitHub one"
-→ inspect("@smithery-ai/github") — shows 12 tools, needs githubPersonalAccessToken, ~3k tokens
+inspect("exa")
+→ 3 tools, no key required, ~623 tokens context cost
 
-User: "Add the frontend design skill"
-→ inoculate_skill("anthropics/frontend-design") — skill woven into context
+call("exa", "web_search_exa", {"query": "shape-shifting AI networks"})
+→ live results from Exa
 
-User: "Show me the network"
-→ network_status() — explored nodes, active skills, context pressure
-```
+fetch("https://news.ycombinator.com", "top stories")
+→ ~500 tokens of clean text instead of ~25,000 tokens of raw HTML
 
-Equivalent Smithery CLI commands (for reference):
-```bash
-smithery mcp search "github"
-smithery skill search "frontend design"
-smithery skill add anthropics/frontend-design --agent claude-code
+run("@modelcontextprotocol/server-everything", "echo", {"message": "hi"})
+→ runs local npm MCP package directly, no registry needed
 ```
 
----
+### Morph — the signature feature
 
-## Recommended System Prompt
+```
+morph("exa")
+→ Morphed into 'exa' — 3 tool(s) registered:
+    web_search_exa, find_similar, get_contents
 
-For the best experience, set this as Claude's system prompt:
+web_search_exa(query="test")   ← called directly, no indirection
+→ live search results
 
-> "You are operating through Smithery Lattice — the self-assembling MCP network built on Smithery's registry. Use architectural language: scan, connect, route, weave, assemble."
-
-### Lattice Language Guide
-
-| Avoid | Use instead |
-|-------|------------|
-| "search for servers" | "scan the lattice for..." |
-| "connecting to a server" | "adding a node to the lattice" |
-| "credential required" | "this node needs a key to join the lattice" |
-| "skill installed" | "skill woven into the lattice" |
-| "context is full" | "the lattice is under load" |
+shed()
+→ Shed 'exa'. Removed: web_search_exa, find_similar, get_contents
+```
 
 ---
 
 ## Architecture
 
 ```
-Claude
-  └── smithery-lattice (this server, Python MCP)
-        ├── explore()  → GET registry.smithery.ai/servers
-        ├── inspect()  → GET registry.smithery.ai/servers/{name}
-        ├── inoculate_skill() → GET registry.smithery.ai/skills/{name}
-        └── network_status() → in-memory session state
+Claude Code (CLI)
+  └── chameleon (this server, Python MCP, stdio)
+        ├── MultiRegistry
+        │     ├── SmitheryRegistry  → GET registry.smithery.ai/servers
+        │     └── NpmRegistry       → GET registry.npmjs.org/-/v1/search
+        ├── HTTPSSETransport  → server.smithery.ai/{name} (remote servers)
+        ├── StdioTransport    → npx/uvx subprocess + JSON-RPC (local servers)
+        └── Tools
+              ├── search / inspect / call / run / fetch
+              ├── auto        → full auto-pipeline
+              ├── morph / shed → dynamic shape-shifting
+              ├── key / skill / status
 ```
 
-Stage 2 (coming): `grow()` routes through WebSocket to live Smithery-hosted servers.
+---
+
+## Token Efficiency
+
+Chameleon MCP is built to minimize context pressure:
+
+- All responses capped at ~1,500 tokens
+- `fetch()` compresses web pages from ~25,000 → ~500 tokens using HTML stripping
+- `search()` uses dense single-line output (5 results ≈ 200 tokens, not 800)
+- Tool schemas loaded lazily — only fetched when needed
+- `status()` tracks cumulative tokens sent, received, and saved
+
+---
+
+## Smithery API Key — Optional
+
+Without a Smithery API key:
+
+| Tool | Without key |
+|------|------------|
+| `search` | Falls back to npm-only |
+| `inspect` | Works for npm packages |
+| `call` / `run` / `fetch` | Work fully |
+| `morph` | Works for npm/stdio servers |
+| `skill` | Requires key (Smithery-specific) |
+| `auto` | Falls back to npm with a note |
 
 ---
 
 ## Built On
 
-- [Smithery Registry API](https://smithery.ai) — thousands of verified MCP servers
-- [Smithery Skills Registry](https://smithery.ai/skills) — markdown skill injections
 - [FastMCP](https://github.com/jlowin/fastmcp) — Python MCP server framework
-- [httpx](https://www.python-httpx.org/) — async HTTP
+- [Smithery Registry API](https://smithery.ai) — 3,000+ verified MCP servers
+- [Smithery Skills Registry](https://smithery.ai/skills) — markdown skill injections
+- [httpx](https://www.python-httpx.org/) — async HTTP client
+- [AxonMCP](https://github.com/AxonMCP/axon-mcp) — optional: enhanced web compression for `fetch()` (install separately for best results)
 
 ---
 
-*Smithery Lattice — the self-assembling MCP network*
-# smithery-lattice
+*Chameleon MCP — take any form*
