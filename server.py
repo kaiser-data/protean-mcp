@@ -31,6 +31,7 @@ MAX_INSPECT_DESC = 120
 _BASE_TOOL_NAMES = {
     "search", "inspect", "call", "run", "fetch",
     "skill", "key", "auto", "status", "morph", "shed",
+    "connect", "release", "test", "bench",
 }
 
 # Session state
@@ -40,6 +41,7 @@ session = {
     "grown": {},
     "morphed_tools": [],      # names of dynamically registered proxy tools
     "current_form": None,     # server_id currently morphed into
+    "connections": {},        # persistent connections: {pool_key: {name, command, pid, ...}}
     "stats": {
         "total_calls": 0,
         "tokens_sent": 0,
@@ -78,6 +80,33 @@ class BaseRegistry(ABC):
 class BaseTransport(ABC):
     @abstractmethod
     async def execute(self, tool: str, args: dict, config: dict) -> str: ...
+
+
+# ---------------------------------------------------------------------------
+# Persistent Process Pool
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _PoolEntry:
+    proc: asyncio.subprocess.Process
+    install_cmd: list
+    started_at: float           # time.monotonic()
+    next_id: int = 3            # 1=init, 2=initialized notify
+    call_count: int = 0
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    name: str = ""
+
+    def pid(self) -> int | None:
+        return self.proc.pid
+
+    def uptime_seconds(self) -> float:
+        return time.monotonic() - self.started_at
+
+    def is_alive(self) -> bool:
+        return self.proc.returncode is None
+
+
+_process_pool: dict[str, _PoolEntry] = {}   # keyed by json(install_cmd, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +635,148 @@ class StdioTransport(BaseTransport):
 
 
 # ---------------------------------------------------------------------------
+# Persistent Stdio Transport
+# ---------------------------------------------------------------------------
+
+class PersistentStdioTransport(BaseTransport):
+    """Execute tool calls on a long-lived stdio subprocess.
+
+    The process is shared across calls via _process_pool, keyed by install_cmd.
+    stderr is inherited from parent so hardware/audio errors surface to terminal.
+    Each pool entry has an asyncio.Lock to serialize concurrent calls.
+    """
+
+    def __init__(self, install_cmd: list):
+        self.install_cmd = install_cmd
+        self._pool_key = json.dumps(install_cmd, sort_keys=True)
+
+    @staticmethod
+    def _frame(msg: dict) -> bytes:
+        return json.dumps(msg).encode() + b"\n"
+
+    async def _start_process(self) -> _PoolEntry:
+        """Spawn subprocess, run MCP handshake, store in pool. Returns entry."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *self.install_cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=None,  # inherit parent stderr — surfaces hardware errors
+            )
+        except FileNotFoundError:
+            raise RuntimeError(f"Cannot find '{self.install_cmd[0]}'. Is it installed?")
+        except Exception as e:
+            raise RuntimeError(f"Failed to start {self.install_cmd[0]}: {e}")
+
+        entry = _PoolEntry(
+            proc=proc,
+            install_cmd=self.install_cmd,
+            started_at=time.monotonic(),
+        )
+
+        # MCP initialize handshake
+        proc.stdin.write(self._frame({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "chameleon", "version": "1.0.0"},
+            },
+        }))
+        await proc.stdin.drain()
+
+        init_resp = await StdioTransport._read_response(proc.stdout, expected_id=1, timeout=60.0)
+        if init_resp is None:
+            proc.kill()
+            raise RuntimeError(f"No initialize response from {self.install_cmd[0]}")
+        if "error" in init_resp:
+            proc.kill()
+            raise RuntimeError(f"Initialize error: {init_resp['error']}")
+
+        proc.stdin.write(self._frame(
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+        ))
+        await proc.stdin.drain()
+
+        _process_pool[self._pool_key] = entry
+        return entry
+
+    async def _get_or_start(self) -> _PoolEntry:
+        """Return existing live pool entry or start a new one."""
+        entry = _process_pool.get(self._pool_key)
+        if entry is not None and entry.is_alive():
+            return entry
+        return await self._start_process()
+
+    async def list_tools(self) -> list[dict]:
+        """Ask live process for its tool list via tools/list."""
+        entry = await self._get_or_start()
+        async with entry.lock:
+            msg_id = entry.next_id
+            entry.next_id += 1
+            entry.proc.stdin.write(self._frame(
+                {"jsonrpc": "2.0", "id": msg_id, "method": "tools/list", "params": {}}
+            ))
+            await entry.proc.stdin.drain()
+
+            resp = await StdioTransport._read_response(
+                entry.proc.stdout, expected_id=msg_id, timeout=30.0
+            )
+            if not resp or "error" in resp:
+                return []
+            return resp.get("result", {}).get("tools", [])
+
+    async def execute(self, tool: str, args: dict, config: dict) -> str:
+        try:
+            entry = await self._get_or_start()
+        except RuntimeError as e:
+            return str(e)
+
+        async with entry.lock:
+            if not entry.is_alive():
+                # Auto-reconnect once
+                try:
+                    entry = await self._start_process()
+                except RuntimeError as e:
+                    return f"Reconnect failed: {e}"
+
+            msg_id = entry.next_id
+            entry.next_id += 1
+
+            try:
+                entry.proc.stdin.write(self._frame({
+                    "jsonrpc": "2.0", "id": msg_id, "method": "tools/call",
+                    "params": {"name": tool, "arguments": args},
+                }))
+                await entry.proc.stdin.drain()
+            except Exception as e:
+                return f"Failed to send to {self.install_cmd[0]}: {e}"
+
+            tool_resp = await StdioTransport._read_response(
+                entry.proc.stdout, expected_id=msg_id, timeout=30.0
+            )
+            if tool_resp is None:
+                return f"No response from {self.install_cmd[0]} for tool '{tool}'"
+            if "error" in tool_resp:
+                err = tool_resp["error"]
+                return f"Tool error: {err.get('message', json.dumps(err))}"
+
+            entry.call_count += 1
+            result = tool_resp.get("result", {})
+            content = result.get("content", [])
+            if content:
+                text_parts = [c.get("text", "") for c in content if c.get("type") == "text"]
+                raw = "\n".join(text_parts) if text_parts else json.dumps(content, indent=2)
+            else:
+                raw = json.dumps(result, indent=2)
+
+            tokens_in = _estimate_tokens(raw)
+            session["stats"]["total_calls"] += 1
+            session["stats"]["tokens_received"] += tokens_in
+            return _truncate(_clean_response(raw))
+
+
+# ---------------------------------------------------------------------------
 # Fetch Helper
 # ---------------------------------------------------------------------------
 
@@ -1093,10 +1264,14 @@ async def morph(server_id: str, ctx: Context) -> str:
         creds_msg = _credentials_guide(server_id, srv.credentials, resolved_config)
         return f"Cannot morph into '{server_id}' — missing credentials:\n\n{creds_msg}"
 
-    # 5. Build transport
+    # 5. Build transport — use persistent if process already in pool
     if srv.transport == "stdio":
         cmd = srv.install_cmd or ["npx", "-y", server_id]
-        transport: BaseTransport = StdioTransport(cmd)
+        pool_key = json.dumps(cmd, sort_keys=True)
+        if pool_key in _process_pool and _process_pool[pool_key].is_alive():
+            transport: BaseTransport = PersistentStdioTransport(cmd)
+        else:
+            transport = StdioTransport(cmd)
     else:
         transport = HTTPSSETransport(server_id)
 
@@ -1138,7 +1313,7 @@ async def morph(server_id: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def shed(ctx: Context) -> str:
-    """Drop current form and remove morphed tools."""
+    """Drop current form and remove morphed tools. NOTE: Does NOT kill persistent connections. Use release(name) for that."""
     if not session["morphed_tools"]:
         return "Already in base form."
     form = session["current_form"]
@@ -1148,6 +1323,278 @@ async def shed(ctx: Context) -> str:
     except Exception:
         pass
     return f"Shed '{form}'. Removed: {', '.join(removed)}"
+
+
+@mcp.tool()
+async def connect(command: str, name: str = "", timeout: int = 60) -> str:
+    """Connect a persistent hardware/audio MCP server. Process stays alive between calls.
+
+    command: shell command string, e.g. 'uvx voice-mode' or 'npx -y mcp-server-xyz'
+    name: friendly name for release(), e.g. 'voice'
+    timeout: startup timeout in seconds (default 60)
+    """
+    install_cmd = command.split()
+    pool_key = json.dumps(install_cmd, sort_keys=True)
+    friendly = name or install_cmd[0]
+
+    # Already connected?
+    existing = _process_pool.get(pool_key)
+    if existing is not None and existing.is_alive():
+        uptime = int(existing.uptime_seconds())
+        calls = existing.call_count
+        label = existing.name or friendly
+        return (
+            f"Already connected: {label} (PID {existing.pid()}) | "
+            f"uptime: {uptime}s | calls: {calls}"
+        )
+
+    transport = PersistentStdioTransport(install_cmd)
+    try:
+        entry = await asyncio.wait_for(transport._start_process(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return f"Timeout starting '{command}' after {timeout}s."
+    except RuntimeError as e:
+        return str(e)
+
+    entry.name = friendly
+
+    # Fetch tool list from live process
+    tools = await transport.list_tools()
+    tool_names = [t.get("name", "?") for t in tools]
+
+    # Update session connections
+    session["connections"][pool_key] = {
+        "name": friendly,
+        "command": command,
+        "pid": entry.pid(),
+        "started_at": entry.started_at,
+        "tools": tool_names,
+    }
+
+    tool_summary = f"Tools ({len(tool_names)}): {', '.join(tool_names)}" if tool_names else "Tools: none listed"
+    return "\n".join([
+        f"Connected: {friendly} (PID {entry.pid()})",
+        tool_summary,
+        f"Release with: release('{friendly}')",
+    ])
+
+
+@mcp.tool()
+async def release(name: str) -> str:
+    """Kill a persistent connection and remove it from the pool.
+
+    name: friendly name passed to connect(), or the pool key
+    """
+    # Find entry by name or pool_key
+    found_key = None
+    found_entry = None
+
+    for pool_key, entry in _process_pool.items():
+        if entry.name == name or pool_key == name:
+            found_key = pool_key
+            found_entry = entry
+            break
+
+    if found_key is None or found_entry is None:
+        active = [e.name or k for k, e in _process_pool.items()]
+        if active:
+            return f"No connection named '{name}'. Active: {', '.join(active)}"
+        return f"No active connections. Use connect() to start one."
+
+    uptime = int(found_entry.uptime_seconds())
+    calls = found_entry.call_count
+    pid = found_entry.pid()
+    label = found_entry.name or found_key
+
+    try:
+        found_entry.proc.kill()
+        await asyncio.wait_for(found_entry.proc.wait(), timeout=5.0)
+    except Exception:
+        pass
+
+    _process_pool.pop(found_key, None)
+    session["connections"].pop(found_key, None)
+
+    return f"Released: {label} (PID {pid}) | uptime: {uptime}s | calls: {calls}"
+
+
+@mcp.tool()
+async def test(server_id: str, level: str = "basic") -> str:
+    """Validate an MCP server and return a quality score 0-100.
+
+    level: 'basic' (registry + schema checks) or 'full' (includes live tool calls)
+    """
+    score = 0
+    checks = []
+
+    # Check 1: Registry lookup (15 pts)
+    srv = await _registry.get_server(server_id)
+    if srv is not None:
+        score += 15
+        checks.append("✅ Registry lookup found server (+15)")
+    else:
+        checks.append("❌ Server not found in registry (0)")
+        return f"Score: {score}/100 (Poor)\n\n" + "\n".join(checks) + "\nGrade: Poor — server not found."
+
+    # Check 2: Known transport type (5 pts)
+    if srv.transport in ("http", "stdio"):
+        score += 5
+        checks.append(f"✅ Transport type known: {srv.transport} (+5)")
+    else:
+        checks.append(f"❌ Unknown transport: {srv.transport!r} (0)")
+
+    # Check 3: Has description (5 pts)
+    if srv.description and len(srv.description) > 10:
+        score += 5
+        checks.append(f"✅ Has description (+5)")
+    else:
+        checks.append("❌ Missing or too-short description (0)")
+
+    # Check 4: tools/list responds (15 pts)
+    tools = srv.tools or []
+    if not tools and srv.transport == "stdio":
+        cmd = srv.install_cmd or ["npx", "-y", server_id]
+        try:
+            tools = await asyncio.wait_for(_fetch_tools_list(cmd), timeout=60.0)
+        except asyncio.TimeoutError:
+            tools = []
+
+    if tools:
+        score += 15
+        checks.append(f"✅ tools/list responded with {len(tools)} tools (+15)")
+    else:
+        checks.append("❌ tools/list returned no tools (0)")
+
+    # Check 5: Tool schemas valid (10 pts)
+    if tools:
+        valid_schemas = sum(
+            1 for t in tools
+            if t.get("name") and t.get("inputSchema")
+        )
+        schema_score = min(10, int(10 * valid_schemas / len(tools)))
+        score += schema_score
+        checks.append(f"✅ Schema quality: {valid_schemas}/{len(tools)} tools valid (+{schema_score})")
+    else:
+        checks.append("⚠️  No tools to check schemas (0)")
+
+    # Check 6: No collision with base tool names (10 pts)
+    collisions = [t.get("name") for t in tools if t.get("name") in _BASE_TOOL_NAMES]
+    if not collisions:
+        score += 10
+        checks.append("✅ No name collisions with Chameleon base tools (+10)")
+    else:
+        checks.append(f"⚠️  Name collisions: {', '.join(collisions)} (0) — will be prefixed on morph()")
+
+    # Check 7: Live tool calls (full mode only, 10 pts per tool, max 5 tools)
+    if level == "full" and tools:
+        checks.append("\n--- FULL MODE: live tool calls ---")
+        call_score = 0
+        for t in tools[:5]:
+            tname = t.get("name", "")
+            # Build minimal dummy args
+            props = (t.get("inputSchema") or {}).get("properties", {})
+            required = set((t.get("inputSchema") or {}).get("required", []))
+            dummy_args = {}
+            for pname, pschema in props.items():
+                if pname in required:
+                    ptype = pschema.get("type", "string")
+                    dummy_args[pname] = {"string": "test", "integer": 0, "boolean": False, "number": 0.0}.get(ptype, "test")
+
+            try:
+                if srv.transport == "stdio":
+                    cmd = srv.install_cmd or ["npx", "-y", server_id]
+                    transport_obj: BaseTransport = StdioTransport(cmd)
+                else:
+                    transport_obj = HTTPSSETransport(server_id)
+                resolved_config, _ = _resolve_config(srv.credentials, {})
+                result = await asyncio.wait_for(
+                    transport_obj.execute(tname, dummy_args, resolved_config), timeout=30.0
+                )
+                if "error" not in result.lower() and "failed" not in result.lower()[:50]:
+                    call_score += 10
+                    checks.append(f"  ✅ {tname}() callable (+10)")
+                else:
+                    checks.append(f"  ⚠️  {tname}() returned error (0)")
+            except Exception as e:
+                checks.append(f"  ❌ {tname}() raised exception: {e!s:.60} (0)")
+
+        score += min(50, call_score)
+
+    # Grade
+    if score >= 90:
+        grade = "Excellent"
+    elif score >= 75:
+        grade = "Good"
+    elif score >= 50:
+        grade = "Fair"
+    else:
+        grade = "Poor"
+
+    header = f"Score: {score}/100 ({grade}) — {server_id}"
+    return header + "\n\n" + "\n".join(checks) + f"\n\nGrade: {grade}"
+
+
+@mcp.tool()
+async def bench(server_id: str, tool_name: str, args: dict = {}, iterations: int = 5) -> str:
+    """Benchmark a tool's latency. Returns p50, p95, min, max, avg in ms.
+
+    iterations: number of calls (1-20, default 5)
+    """
+    iterations = max(1, min(20, iterations))
+
+    srv = await _registry.get_server(server_id)
+    if srv is None:
+        return f"Server '{server_id}' not found. Use search() to find servers."
+
+    if srv.transport == "stdio":
+        cmd = srv.install_cmd or ["npx", "-y", server_id]
+        transport_obj: BaseTransport = StdioTransport(cmd)
+    else:
+        transport_obj = HTTPSSETransport(server_id)
+
+    resolved_config, missing = _resolve_config(srv.credentials, {})
+    if missing:
+        return _credentials_guide(server_id, srv.credentials, resolved_config)
+
+    latencies: list[float] = []
+    errors: list[str] = []
+
+    for i in range(iterations):
+        t0 = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                transport_obj.execute(tool_name, args, resolved_config), timeout=30.0
+            )
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            if "error" in result.lower() and i == 0:
+                errors.append(f"call {i + 1}: tool returned error")
+            else:
+                latencies.append(elapsed_ms)
+        except asyncio.TimeoutError:
+            errors.append(f"call {i + 1}: timeout (>30s)")
+        except Exception as e:
+            errors.append(f"call {i + 1}: {e!s:.60}")
+
+    if not latencies:
+        return f"All {iterations} calls failed:\n" + "\n".join(errors)
+
+    latencies.sort()
+    n = len(latencies)
+    p50 = latencies[int(n * 0.50)]
+    p95 = latencies[min(n - 1, int(n * 0.95))]
+    avg = sum(latencies) / n
+
+    lines = [
+        f"Benchmark: {server_id}/{tool_name} ({n}/{iterations} succeeded)",
+        f"  p50: {p50:.0f}ms",
+        f"  p95: {p95:.0f}ms",
+        f"  min: {latencies[0]:.0f}ms",
+        f"  max: {latencies[-1]:.0f}ms",
+        f"  avg: {avg:.0f}ms",
+    ]
+    if errors:
+        lines.append(f"  errors ({len(errors)}): " + "; ".join(errors))
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -1168,6 +1615,22 @@ async def status() -> str:
         lines.append("")
     else:
         lines += ["CURRENT FORM: base (no morph active)", ""]
+
+    # Persistent connections
+    if _process_pool:
+        lines.append(f"PERSISTENT CONNECTIONS ({len(_process_pool)})")
+        for pool_key, entry in _process_pool.items():
+            label = entry.name or pool_key
+            alive = "alive" if entry.is_alive() else "dead"
+            uptime = int(entry.uptime_seconds())
+            conn_info = session["connections"].get(pool_key, {})
+            tool_names = conn_info.get("tools", [])
+            tool_str = f"Tools: {', '.join(tool_names)}" if tool_names else "Tools: none"
+            lines.append(
+                f"  {label} | PID {entry.pid()} | {alive} | uptime: {uptime}s | calls: {entry.call_count}"
+            )
+            lines.append(f"    {tool_str}")
+        lines.append("")
 
     if explored:
         lines.append(f"EXPLORED ({len(explored)})")

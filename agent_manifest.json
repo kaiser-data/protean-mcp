@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "name": "chameleon-mcp",
+  "display_name": "Chameleon MCP",
+  "description": "The shape-shifting MCP hub. morph() into any of 3,000+ MCP servers at runtime. No config files. No restarts.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": "https://github.com/kaiser-data/chameleon-mcp",
+  "install": {
+    "pip": "chameleon-mcp",
+    "source": "python server.py",
+    "mcp_json": {
+      "command": "python",
+      "args": ["/path/to/server.py"],
+      "env": { "SMITHERY_API_KEY": "optional" }
+    }
+  },
+  "capabilities": {
+    "registries": ["smithery", "npm"],
+    "server_count": "3000+",
+    "transports": ["http_sse", "stdio", "persistent_stdio"],
+    "morphing": true,
+    "hardware_support": true,
+    "quality_tools": true,
+    "token_efficiency": {
+      "max_response_tokens": 1500,
+      "fetch_compression_ratio": "~17x"
+    }
+  },
+  "tools": {
+    "discovery": ["search", "inspect", "auto"],
+    "execution": ["call", "run", "fetch"],
+    "morphing": ["morph", "shed"],
+    "hardware": ["connect", "release"],
+    "quality": ["test", "bench"],
+    "management": ["status", "key", "skill"]
+  },
+  "tool_count": 15,
+  "all_tool_names": [
+    "search", "inspect", "call", "run", "fetch",
+    "skill", "key", "auto", "status", "morph", "shed",
+    "connect", "release", "test", "bench"
+  ],
+  "decision_guide": {
+    "use_chameleon_if": [
+      "You need to call multiple different MCP servers in one session",
+      "You want to discover servers without pre-configuring them",
+      "You need hardware/audio tools that must stay alive between calls",
+      "You want to validate server quality before integrating"
+    ],
+    "key_differentiators": [
+      "Runtime morphing — no client restart needed",
+      "Persistent process pool for hardware/audio servers",
+      "Quality scoring via test() tool",
+      "Works without API keys (npm fallback)"
+    ]
+  },
+  "auth": {
+    "required": false,
+    "optional": {
+      "SMITHERY_API_KEY": "Unlocks Smithery's 3,000+ verified server registry. Get at smithery.ai/account/api-keys"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+name: Chameleon MCP
+qualifiedName: kaiser-data/chameleon-mcp
+description: >
+  The shape-shifting MCP hub. morph() into any of 3,000+ MCP servers at runtime.
+  No config files. No restarts. Search → morph → call → shed in seconds.
+homepage: https://github.com/kaiser-data/chameleon-mcp
+license: MIT
+transport: stdio
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      SMITHERY_API_KEY:
+        type: string
+        description: >
+          Smithery API key for searching and accessing 3,000+ verified MCP servers.
+          Get yours at smithery.ai/account/api-keys
+        required: false
+    additionalProperties: false
+  commandFunction: |
+    (config) => ({
+      command: "python",
+      args: ["server.py"],
+      env: {
+        ...(config.SMITHERY_API_KEY ? { SMITHERY_API_KEY: config.SMITHERY_API_KEY } : {})
+      }
+    })
+
+tools:
+  - name: search
+    description: Search 3,000+ MCP servers across Smithery and npm registries
+  - name: inspect
+    description: Show a server's tools, credentials, and token cost
+  - name: call
+    description: Call any tool on any MCP server (HTTP or stdio)
+  - name: run
+    description: Run a tool from a local npm/pip package directly
+  - name: morph
+    description: Take a server's form — register its tools directly in your context
+  - name: shed
+    description: Drop current form and return to base Chameleon tools
+  - name: connect
+    description: Connect a persistent hardware/audio MCP server (process stays alive)
+  - name: release
+    description: Release a persistent connection and kill its process
+  - name: status
+    description: Show current form, connections, token stats
+  - name: fetch
+    description: Fetch a URL with compressed output (~500 tokens vs 25K raw)
+  - name: auto
+    description: Auto-discover and call the best server for a task
+  - name: key
+    description: Save an API key to .env for persistent use
+  - name: skill
+    description: Inject a Smithery skill prompt into context
+  - name: test
+    description: Validate any MCP server and return a quality score 0-100
+  - name: bench
+    description: Benchmark a tool's latency (p50, p95, min, max)

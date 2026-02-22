@@ -1,0 +1,146 @@
+# Agent Patterns
+
+Common patterns for AI agents using Chameleon MCP.
+
+## Pattern 1: Search → Quality Gate → Morph
+
+Validate a server before committing to it:
+
+```python
+# Step 1: Find candidates
+search("web scraping", limit=5)
+
+# Step 2: Quality gate
+score = test("exa/exa")
+# → Score: 85/100 (Good) — proceed
+
+# Step 3: Morph only if quality is acceptable
+morph("exa/exa")
+web_search_exa(query="latest Python news")
+```
+
+## Pattern 2: Chain Morphs
+
+Morph into multiple servers in sequence for a multi-step task:
+
+```python
+# Step 1: Research
+morph("exa/exa")
+results = web_search_exa(query="MCP server list 2025")
+shed()
+
+# Step 2: Fetch and extract
+morph("fetch-mcp/fetch-mcp")
+content = fetch_page(url="https://example.com/mcp-servers")
+shed()
+
+# Step 3: Write output
+morph("@modelcontextprotocol/server-filesystem")
+write_file(path="/tmp/report.md", content=f"# Research\n{results}\n\n{content}")
+shed()
+```
+
+## Pattern 3: Hardware Pipeline
+
+Audio processing with persistent connections:
+
+```python
+# Connect audio server once
+connect("uvx voice-mode", name="audio", timeout=30)
+
+# Morphing uses the persistent process
+morph("voice-mode")
+
+# Pipeline: listen → process → speak
+transcript = listen(duration=10)
+# (call other tools to process transcript)
+speak(text=f"I heard: {transcript}")
+
+shed()
+release("audio")
+```
+
+## Pattern 4: Auto-Discovery with Fallback
+
+Let Chameleon pick the best server, with a manual fallback:
+
+```python
+# Try auto-discovery first
+result = auto("search for Python packages", "search", {"query": "httpx"})
+
+# If auto fails, fall back to a known server
+if "No servers found" in result:
+    result = call("mcp-server-npm", "search", {"query": "httpx"})
+```
+
+## Pattern 5: Benchmark Before Batch
+
+Benchmark latency before running many calls:
+
+```python
+# Check if server is fast enough for batch work
+bench("exa/exa", "web_search_exa", {"query": "test"}, iterations=3)
+# → p50: 234ms | p95: 891ms
+
+# If p95 < 1000ms, proceed with batch
+queries = ["AI news", "Python MCP", "FastAPI tutorial"]
+morph("exa/exa")
+for q in queries:
+    web_search_exa(query=q)
+shed()
+```
+
+## Pattern 6: Multi-Registry Discovery
+
+Search both Smithery and npm, compare results:
+
+```python
+smithery_results = search("file system", registry="smithery", limit=3)
+npm_results = search("file system", registry="npm", limit=3)
+
+# Inspect the top result from each
+inspect(smithery_results[0].id)
+inspect(npm_results[0].id)
+
+# Pick the one with better tooling
+morph("@modelcontextprotocol/server-filesystem")
+```
+
+## Anti-Patterns to Avoid
+
+### Don't morph without shedding
+```python
+morph("server-a")
+morph("server-b")  # ✓ Auto-sheds server-a first
+# But explicit shed() is clearer:
+morph("server-a")
+shed()
+morph("server-b")
+```
+
+### Don't use call() for hardware tools
+```python
+# ❌ Spawns new process every call — audio device disconnects
+call("voice-mode", "speak", {"text": "Hello"})
+call("voice-mode", "speak", {"text": "World"})
+
+# ✓ Use connect() to keep process alive
+connect("uvx voice-mode", name="voice")
+call("voice-mode", "speak", {"text": "Hello"})
+call("voice-mode", "speak", {"text": "World"})
+release("voice")
+```
+
+### Don't forget to release() hardware connections
+```python
+# ❌ Process leaks
+connect("uvx voice-mode", name="voice")
+# ... work ...
+shed()   # only removes morph, doesn't kill process!
+
+# ✓ Always release hardware connections
+connect("uvx voice-mode", name="voice")
+# ... work ...
+shed()
+release("voice")
+```
