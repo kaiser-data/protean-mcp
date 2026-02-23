@@ -261,6 +261,42 @@ Some servers — audio pipelines, hardware interfaces, stateful services — can
 
 ---
 
+## Why Not Just X?
+
+### "Can't I just add more servers to `mcp.json`?"
+
+Yes — but every configured server starts at launch and exposes all its tools constantly. With 5+ servers you're sending hundreds of tool definitions on every request, which hurts response quality and burns tokens on tools your AI rarely needs. You also can't add or remove a server mid-session without editing the config file and restarting your client.
+
+Chameleon's tool list stays minimal. Morph in what you need, shed it when you're done.
+
+### "What about `mcp-dynamic-proxy`?"
+
+[mcp-dynamic-proxy](https://pypi.org/project/mcp-dynamic-proxy/) solves the context-bloat problem differently: it hides all tools behind 3 meta-tools (`list_servers`, `list_tools`, `call_tool`). The trade-off is that your AI must *always* route calls through the wrapper — it never gets a native `web_search` tool, only ever `call_tool("brave", "web_search", {...})`.
+
+Chameleon's approach is different: `morph()` **injects real tools directly into the session**. After `morph("mcp-server-brave-search")`, the AI sees and calls `brave_web_search` natively, with the actual schema, exactly as if the server were configured directly.
+
+Two other gaps in mcp-dynamic-proxy:
+- **Static config** — server list is defined in a JSON file at startup; no runtime discovery
+- **No installation** — assumes all servers are already installed; can't resolve npm/PyPI/GitHub packages on demand
+
+### "Can FastMCP do this natively?"
+
+FastMCP provides the right primitives — `mcp.add_tool()`, `mcp.remove_tool()`, `mcp.mount()`, `FastMCPProxy` — but not a finished product. You'd need to wire up the rest yourself:
+
+| | FastMCP native | Chameleon |
+|---|:---:|:---:|
+| Proxy a known HTTP/SSE server | ✅ | ✅ |
+| Mount another server's tools at runtime | ✅ (write code) | ✅ `morph()` |
+| Search registries to discover servers | ❌ | ✅ npm + Smithery |
+| Install npm / PyPI / GitHub packages on demand | ❌ | ✅ |
+| Atomic shed — retract all morphed tools at once | ❌ | ✅ `shed()` |
+| Persistent stdio process pool | ❌ | ✅ |
+| Zero boilerplate — works after `pip install` | ❌ | ✅ |
+
+You [can build a subset of this](https://dev.to/amartyadev/building-a-dynamic-mcp-proxy-server-in-python-16jf) on top of FastMCP's `mcp.mount()`, but you'll still need to add package installation, registry search, subprocess lifecycle management, and the morph/shed snapshot concept. Chameleon is that work, pre-built and packaged.
+
+---
+
 ## Installation Options
 
 ### From PyPI
