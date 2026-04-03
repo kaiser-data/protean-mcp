@@ -3,7 +3,23 @@ import json
 import re
 import shutil
 
+import httpx
+
 from chameleon_mcp.constants import MAX_RESPONSE_TOKENS
+
+# ---------------------------------------------------------------------------
+# Shared HTTP client — reused across registry lookups, skill fetches, URL fetch
+# ---------------------------------------------------------------------------
+
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Return the process-wide shared AsyncClient, creating it on first call."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(follow_redirects=True)
+    return _http_client
 
 
 def _estimate_tokens(text) -> int:

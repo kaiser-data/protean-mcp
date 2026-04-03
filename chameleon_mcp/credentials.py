@@ -1,8 +1,6 @@
 import os
 import re
 
-from chameleon_mcp.utils import _estimate_tokens
-
 # Read at import time (load_dotenv() must be called by entry point first)
 SMITHERY_API_KEY = os.getenv("SMITHERY_API_KEY", "")
 # Write .env to the user's working directory (same location load_dotenv() reads from).
@@ -31,7 +29,7 @@ def _to_env_var(k: str) -> str:
 def _save_to_env(env_var: str, value: str) -> None:
     try:
         try:
-            with open(ENV_PATH, 'r') as f:
+            with open(ENV_PATH) as f:
                 lines = f.readlines()
         except FileNotFoundError:
             lines = []

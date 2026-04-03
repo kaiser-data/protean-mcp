@@ -1,22 +1,20 @@
 """Tests for _PoolEntry, PersistentStdioTransport, connect(), release()."""
 import asyncio
 import json
+import os
+import sys
 import time
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import sys
-import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import server as srv_module
 from server import (
-    _PoolEntry,
     PersistentStdioTransport,
+    _PoolEntry,
     _process_pool,
     session,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -429,3 +427,84 @@ class TestInheritStderr:
 
         assert captured_kwargs.get("stderr") == asyncio.subprocess.PIPE
         _process_pool.pop(pool_key, None)
+
+
+# ---------------------------------------------------------------------------
+# Pool eviction tests
+# ---------------------------------------------------------------------------
+
+class TestPoolEviction:
+    """_evict_stale_pool_entries() removes dead, idle, and over-limit entries."""
+
+    def setup_method(self):
+        _process_pool.clear()
+
+    def teardown_method(self):
+        _process_pool.clear()
+
+    def _make_entry(self, returncode=None, last_used_offset=0.0, cmd=None):
+        cmd = cmd or ["fake-cmd"]
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.kill = MagicMock()
+        entry = _PoolEntry(
+            proc=proc,
+            install_cmd=cmd,
+            started_at=time.monotonic(),
+            last_used_at=time.monotonic() + last_used_offset,
+        )
+        return json.dumps(cmd, sort_keys=True), entry
+
+    def test_dead_process_is_evicted(self):
+        from server import _evict_stale_pool_entries
+        key, entry = self._make_entry(returncode=1)  # dead process
+        _process_pool[key] = entry
+
+        evicted = _evict_stale_pool_entries()
+
+        assert key in evicted
+        assert key not in _process_pool
+        entry.proc.kill.assert_called()
+
+    def test_idle_process_is_evicted(self):
+        from chameleon_mcp.constants import POOL_MAX_IDLE_SECONDS
+        from server import _evict_stale_pool_entries
+        key, entry = self._make_entry(returncode=None, last_used_offset=-(POOL_MAX_IDLE_SECONDS + 1))
+        _process_pool[key] = entry
+
+        evicted = _evict_stale_pool_entries()
+
+        assert key in evicted
+        assert key not in _process_pool
+
+    def test_live_recent_process_is_kept(self):
+        from server import _evict_stale_pool_entries
+        key, entry = self._make_entry(returncode=None, last_used_offset=0.0)
+        _process_pool[key] = entry
+
+        evicted = _evict_stale_pool_entries()
+
+        assert key not in evicted
+        assert key in _process_pool
+
+    def test_hard_cap_evicts_oldest(self):
+        from chameleon_mcp.constants import POOL_MAX_PROCESSES
+        from server import _evict_stale_pool_entries
+        # Fill pool beyond cap: POOL_MAX_PROCESSES + 2 entries, each with different last_used_at
+        for i in range(POOL_MAX_PROCESSES + 2):
+            cmd = [f"cmd-{i}"]
+            key = json.dumps(cmd, sort_keys=True)
+            proc = MagicMock()
+            proc.returncode = None
+            proc.kill = MagicMock()
+            entry = _PoolEntry(
+                proc=proc,
+                install_cmd=cmd,
+                started_at=time.monotonic(),
+                last_used_at=time.monotonic() - (POOL_MAX_PROCESSES + 2 - i),  # oldest first
+            )
+            _process_pool[key] = entry
+
+        _evict_stale_pool_entries()
+
+        assert len(_process_pool) == POOL_MAX_PROCESSES

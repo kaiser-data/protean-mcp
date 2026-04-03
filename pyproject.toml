@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chameleon-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "The shape-shifting MCP hub — morph() into any server at runtime. 3,000+ servers. No config. No restart."
 readme = "README.md"
 license = { text = "MIT" }
@@ -35,7 +35,6 @@ dependencies = [
     "fastmcp>=0.1.0",
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
-    "certifi>=2024.0.0",
     "mcp>=1.0.0",
 ]
 

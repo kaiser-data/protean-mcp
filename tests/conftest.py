@@ -1,10 +1,10 @@
 """Shared test fixtures for Chameleon MCP tests."""
-import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
 import pytest
 import respx
-import httpx
-from unittest.mock import AsyncMock, MagicMock
 
 # ---------------------------------------------------------------------------
 # Shared subprocess mock helpers (importable or usable as fixtures)

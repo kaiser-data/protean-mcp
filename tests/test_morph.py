@@ -1,12 +1,11 @@
 """Tests for morph-related helpers: _make_proxy, collision detection, _BASE_TOOL_NAMES."""
 import inspect
-import pytest
-
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import _make_proxy, _BASE_TOOL_NAMES, StdioTransport
+from server import _BASE_TOOL_NAMES, StdioTransport, _make_proxy
 
 
 class TestBaseToolNames:

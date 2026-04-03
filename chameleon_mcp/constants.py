@@ -21,4 +21,10 @@ CRED_SUFFIXES = (
 RESOURCE_PRIORITY_KEYWORDS = [["env"], ["param"], ["auth", "key"], ["quick", "setup"], ["config"]]
 MAX_RESOURCE_DOCS = 4
 
+POOL_MAX_IDLE_SECONDS = 3600   # evict processes idle for longer than 1 hour
+POOL_MAX_PROCESSES    = 10     # hard cap on concurrent pool entries
+
+OFFICIAL_REGISTRY_URL       = "https://raw.githubusercontent.com/modelcontextprotocol/servers/main/servers.json"
+OFFICIAL_REGISTRY_CACHE_TTL = 86400  # 24 hours — list rarely changes
+
 PROVIDER_PARAM_SUFFIXES = ("provider", "engine", "backend", "service", "mode")

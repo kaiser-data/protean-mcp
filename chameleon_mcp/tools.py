@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import ipaddress
 import json
 import shlex
@@ -7,33 +8,53 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
-import certifi
 from mcp.server.fastmcp import Context
 
 from chameleon_mcp.app import mcp
 from chameleon_mcp.constants import (
-    TIMEOUT_STDIO_INIT, TIMEOUT_STDIO_TOOL, TIMEOUT_RESOURCE_LIST, TIMEOUT_RESOURCE_READ,
+    MAX_INSPECT_DESC,
+    MAX_RESOURCE_DOCS,
+    MAX_RESPONSE_TOKENS,
+    RESOURCE_PRIORITY_KEYWORDS,
     TIMEOUT_FETCH_URL,
-    MAX_RESPONSE_TOKENS, MAX_INSPECT_DESC,
-    RESOURCE_PRIORITY_KEYWORDS, MAX_RESOURCE_DOCS,
+    TIMEOUT_RESOURCE_LIST,
+    TIMEOUT_RESOURCE_READ,
+    TIMEOUT_STDIO_INIT,
+    TIMEOUT_STDIO_TOOL,
 )
-from chameleon_mcp.utils import (
-    _estimate_tokens, _truncate, _clean_response, _strip_html, _extract_content, _try_axonmcp,
+from chameleon_mcp.credentials import (
+    _credentials_guide,
+    _registry_headers,
+    _resolve_config,
+    _save_to_env,
+    _smithery_available,
+    _to_env_var,
+)
+from chameleon_mcp.morph import _do_shed, _fetch_tools_list, _register_proxy_tools
+from chameleon_mcp.probe import _doc_uri_priority, _format_setup_guide, _probe_requirements
+from chameleon_mcp.registry import (
+    REGISTRY_BASE,
+    NpmRegistry,
+    PyPIRegistry,
+    SmitheryRegistry,
+    _registry,
 )
 from chameleon_mcp.session import session
-from chameleon_mcp.credentials import (
-    _registry_headers, _smithery_available, _to_env_var, _save_to_env,
-    _resolve_config, _credentials_guide,
-)
-from chameleon_mcp.registry import (
-    REGISTRY_BASE, SmitheryRegistry, NpmRegistry, _registry,
-)
 from chameleon_mcp.transport import (
-    BaseTransport, _process_pool,
-    HTTPSSETransport, StdioTransport, PersistentStdioTransport,
+    BaseTransport,
+    HTTPSSETransport,
+    PersistentStdioTransport,
+    StdioTransport,
+    _ping,
+    _process_pool,
 )
-from chameleon_mcp.probe import _probe_requirements, _format_setup_guide, _doc_uri_priority
-from chameleon_mcp.morph import _fetch_tools_list, _do_shed, _register_proxy_tools
+from chameleon_mcp.utils import (
+    _estimate_tokens,
+    _get_http_client,
+    _strip_html,
+    _truncate,
+    _try_axonmcp,
+)
 
 # Base tool names — used for collision detection in morph()
 _BASE_TOOL_NAMES = {
@@ -45,11 +66,13 @@ _BASE_TOOL_NAMES = {
 
 @mcp.tool()
 async def search(query: str, registry: str = "all", limit: int = 5) -> str:
-    """Search for MCP servers. registry: 'all'|'smithery'|'npm'."""
+    """Search for MCP servers. registry: 'all'|'smithery'|'npm'|'pypi'."""
     if registry == "smithery":
         reg = SmitheryRegistry()
     elif registry == "npm":
         reg = NpmRegistry()
+    elif registry == "pypi":
+        reg = PyPIRegistry()
     else:
         reg = _registry
 
@@ -63,7 +86,7 @@ async def search(query: str, registry: str = "all", limit: int = 5) -> str:
         lines.append(f"{s.id} | {s.name} — {s.description} | {s.source}/{s.transport} | creds: {creds}")
         session["explored"][s.id] = {"name": s.name, "desc": s.description, "status": "explored"}
 
-    lines.append(f"\ninspect('<id>') for details | call('<id>', '<tool>', args) to call")
+    lines.append("\ninspect('<id>') for details | call('<id>', '<tool>', args) to call")
     return "\n".join(lines)
 
 
@@ -105,7 +128,10 @@ async def inspect(server_id: str) -> str:
     else:
         lines.append("TOOLS: not listed in registry")
 
-    session["explored"][srv.id] = {"name": srv.name, "desc": srv.description, "status": "inspected"}
+    session["explored"][srv.id] = {
+        "name": srv.name, "desc": srv.description,
+        "status": "inspected", "token_cost": srv.token_cost,
+    }
     return "\n".join(lines)
 
 
@@ -113,10 +139,14 @@ async def inspect(server_id: str) -> str:
 async def call(
     server_id: str,
     tool_name: str,
-    arguments: dict = {},
-    config: dict = {},
+    arguments: dict | None = None,
+    config: dict | None = None,
 ) -> str:
     """Call a tool on an MCP server (remote HTTP or local stdio). Creds auto-loaded from env."""
+    if arguments is None:
+        arguments = {}
+    if config is None:
+        config = {}
     srv = await _registry.get_server(server_id)
     credentials = srv.credentials if srv else {}
 
@@ -145,16 +175,15 @@ async def call(
 async def run(
     package: str,
     tool_name: str,
-    arguments: dict = {},
+    arguments: dict | None = None,
 ) -> str:
     """Run a tool from a local npm/pip package directly (no registry lookup).
 
     package: npm name (npx) or 'uvx:package-name' for Python uv packages.
     """
-    if package.startswith("uvx:"):
-        cmd = ["uvx", package[4:]]
-    else:
-        cmd = ["npx", "-y", package]
+    if arguments is None:
+        arguments = {}
+    cmd = ["uvx", package[4:]] if package.startswith("uvx:") else ["npx", "-y", package]
 
     transport = StdioTransport(cmd)
     result = await transport.execute(tool_name, arguments, {})
@@ -181,12 +210,11 @@ async def fetch(url: str, intent: str = "") -> str:
 
     # Fallback: httpx + HTML stripping
     try:
-        async with httpx.AsyncClient(follow_redirects=True, verify=certifi.where()) as client:
-            r = await client.get(
-                url, timeout=TIMEOUT_FETCH_URL, headers={"User-Agent": "Mozilla/5.0"}
-            )
-            r.raise_for_status()
-            text = r.text
+        r = await _get_http_client().get(
+            url, timeout=TIMEOUT_FETCH_URL, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        r.raise_for_status()
+        text = r.text
     except Exception as e:
         return f"Failed to fetch {url}: {e}"
 
@@ -225,14 +253,13 @@ async def skill(qualified_name: str) -> str:
         return "No SMITHERY_API_KEY set. Run: key('SMITHERY_API_KEY', 'your-key')"
 
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(
-                f"{REGISTRY_BASE}/skills/{qualified_name}",
-                headers=_registry_headers(),
-                timeout=TIMEOUT_FETCH_URL,
-            )
-            r.raise_for_status()
-            skill_meta = r.json()
+        r = await _get_http_client().get(
+            f"{REGISTRY_BASE}/skills/{qualified_name}",
+            headers=_registry_headers(),
+            timeout=TIMEOUT_FETCH_URL,
+        )
+        r.raise_for_status()
+        skill_meta = r.json()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             return f"Skill '{qualified_name}' not found."
@@ -248,10 +275,9 @@ async def skill(qualified_name: str) -> str:
                    or skill_meta.get("content_url"))
     if content_url and _is_safe_url(content_url):
         try:
-            async with httpx.AsyncClient() as client:
-                rc = await client.get(content_url, timeout=TIMEOUT_FETCH_URL)
-                rc.raise_for_status()
-                content = rc.text
+            rc = await _get_http_client().get(content_url, timeout=TIMEOUT_FETCH_URL)
+            rc.raise_for_status()
+            content = rc.text
         except Exception:
             content = None
 
@@ -290,6 +316,7 @@ async def key(env_var: str, value: str) -> str:
     """Save an API key to .env for persistent use. e.g. key('EXA_API_KEY', 'sk-...')"""
     var = env_var.upper().replace(" ", "_")
     _save_to_env(var, value)
+    _registry.bust_cache()  # credentials changed — invalidate cached server records
     return f"Saved: {var} written to .env and active for this session."
 
 
@@ -297,11 +324,15 @@ async def key(env_var: str, value: str) -> str:
 async def auto(
     task: str,
     tool_name: str = "",
-    arguments: dict = {},
+    arguments: dict | None = None,
     server_hint: str = "",
-    keys: dict = {},
+    keys: dict | None = None,
 ) -> str:
     """Auto-discover and call the best server for a task. Full pipeline in one call."""
+    if arguments is None:
+        arguments = {}
+    if keys is None:
+        keys = {}
     for env_var, value in keys.items():
         _save_to_env(env_var.upper(), str(value))
 
@@ -378,7 +409,7 @@ async def morph(server_id: str, ctx: Context) -> str:
     """Take a server's form — register its tools directly."""
     # 1. Check pool connections first (friendly names from connect() take priority)
     pool_conn = None
-    for pk, conn in session["connections"].items():
+    for _pk, conn in session["connections"].items():
         if conn.get("name") == server_id or conn.get("command") == server_id:
             pool_conn = conn
             break
@@ -414,10 +445,8 @@ async def morph(server_id: str, ctx: Context) -> str:
         session["morphed_tools"] = registered
         session["current_form"] = server_id
 
-        try:
+        with contextlib.suppress(Exception):
             await ctx.session.send_tool_list_changed()
-        except Exception:
-            pass
 
         lines = [
             f"Morphed into '{server_id}' (pool connection) — {len(registered)} tool(s) registered:",
@@ -466,10 +495,8 @@ async def morph(server_id: str, ctx: Context) -> str:
     session["current_form"] = server_id
 
     # 7. Notify client that tool list has changed
-    try:
+    with contextlib.suppress(Exception):
         await ctx.session.send_tool_list_changed()
-    except Exception:
-        pass
 
     lines = [
         f"Morphed into '{server_id}' — {len(registered)} tool(s) registered:",
@@ -487,10 +514,8 @@ async def shed(ctx: Context) -> str:
         return "Already in base form."
     form = session["current_form"]
     removed = _do_shed()
-    try:
+    with contextlib.suppress(Exception):
         await ctx.session.send_tool_list_changed()
-    except Exception:
-        pass
     return f"Shed '{form}'. Removed: {', '.join(removed)}"
 
 
@@ -521,7 +546,7 @@ async def connect(command: str, name: str = "", timeout: int = 60, inherit_stder
     transport = PersistentStdioTransport(install_cmd, inherit_stderr=inherit_stderr)
     try:
         entry = await asyncio.wait_for(transport._start_process(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return f"Timeout starting '{command}' after {timeout}s."
     except RuntimeError as e:
         return str(e)
@@ -591,7 +616,7 @@ async def release(name: str) -> str:
         active = [e.name or k for k, e in _process_pool.items()]
         if active:
             return f"No connection named '{name}'. Active: {', '.join(active)}"
-        return f"No active connections. Use connect() to start one."
+        return "No active connections. Use connect() to start one."
 
     uptime = int(found_entry.uptime_seconds())
     calls = found_entry.call_count
@@ -638,7 +663,7 @@ async def test(server_id: str, level: str = "basic") -> str:
     # Check 3: Has description (5 pts)
     if srv.description and len(srv.description) > 10:
         score += 5
-        checks.append(f"✅ Has description (+5)")
+        checks.append("✅ Has description (+5)")
     else:
         checks.append("❌ Missing or too-short description (0)")
 
@@ -648,7 +673,7 @@ async def test(server_id: str, level: str = "basic") -> str:
         cmd = srv.install_cmd or ["npx", "-y", server_id]
         try:
             tools = await asyncio.wait_for(_fetch_tools_list(cmd), timeout=TIMEOUT_STDIO_INIT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             tools = []
 
     if tools:
@@ -727,11 +752,13 @@ async def test(server_id: str, level: str = "basic") -> str:
 
 
 @mcp.tool()
-async def bench(server_id: str, tool_name: str, args: dict = {}, iterations: int = 5) -> str:
+async def bench(server_id: str, tool_name: str, args: dict | None = None, iterations: int = 5) -> str:
     """Benchmark a tool's latency. Returns p50, p95, min, max, avg in ms.
 
     iterations: number of calls (1-20, default 5)
     """
+    if args is None:
+        args = {}
     iterations = max(1, min(20, iterations))
 
     srv = await _registry.get_server(server_id)
@@ -763,7 +790,7 @@ async def bench(server_id: str, tool_name: str, args: dict = {}, iterations: int
                 errors.append(f"call {i + 1}: tool returned error")
             else:
                 latencies.append(elapsed_ms)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             errors.append(f"call {i + 1}: timeout (>30s)")
         except Exception as e:
             errors.append(f"call {i + 1}: {e!s:.60}")
@@ -809,18 +836,28 @@ async def status() -> str:
     else:
         lines += ["CURRENT FORM: base (no morph active)", ""]
 
-    # Persistent connections
+    # Persistent connections — ping all in parallel
     if _process_pool:
-        lines.append(f"PERSISTENT CONNECTIONS ({len(_process_pool)})")
-        for pool_key, entry in _process_pool.items():
+        pool_items = list(_process_pool.items())
+        ping_results = await asyncio.gather(
+            *[_ping(entry) for _, entry in pool_items],
+            return_exceptions=True,
+        )
+        lines.append(f"PERSISTENT CONNECTIONS ({len(pool_items)})")
+        for (pool_key, entry), responsive in zip(pool_items, ping_results, strict=False):
             label = entry.name or pool_key
-            alive = "alive" if entry.is_alive() else "dead"
+            if not entry.is_alive():
+                health = "dead"
+            elif responsive is True:
+                health = "alive+responsive"
+            else:
+                health = "alive+unresponsive"
             uptime = int(entry.uptime_seconds())
             conn_info = session["connections"].get(pool_key, {})
             tool_names = conn_info.get("tools", [])
             tool_str = f"Tools: {', '.join(tool_names)}" if tool_names else "Tools: none"
             lines.append(
-                f"  {label} | PID {entry.pid()} | {alive} | uptime: {uptime}s | calls: {entry.call_count}"
+                f"  {label} | PID {entry.pid()} | {health} | uptime: {uptime}s | calls: {entry.call_count}"
             )
             lines.append(f"    {tool_str}")
         lines.append("")
@@ -848,6 +885,12 @@ async def status() -> str:
             lines.append(f"  {sid} ~{t:,} tokens")
         lines.append("")
 
+    # Token savings vs always-on: compare what context cost would be if all explored
+    # servers were loaded at startup vs what we actually used
+    always_on_cost = sum(info.get("token_cost", 500) for info in explored.values())
+    actual_used = stats["tokens_sent"] + stats["tokens_received"]
+    lazy_saved = max(0, always_on_cost - actual_used)
+
     lines += [
         "PERFORMANCE STATS",
         f"  Total calls:       {stats['total_calls']}",
@@ -859,6 +902,8 @@ async def status() -> str:
     if stats["total_calls"] > 0:
         avg = stats["tokens_received"] // stats["total_calls"]
         lines.append(f"  Avg response:    ~{avg} tokens")
+    if lazy_saved > 0:
+        lines.append(f"  Saved vs always-on: ~{lazy_saved:,} tokens ({len(explored)} servers × lazy-load)")
 
     return "\n".join(lines)
 

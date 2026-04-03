@@ -1,18 +1,16 @@
 """Tests for chameleon_mcp/probe.py — readiness probing and setup guide formatting."""
 import os
-import pytest
-
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from chameleon_mcp.probe import (
-    _doc_uri_priority,
-    _probe_requirements,
-    _classify_provider,
-    _format_setup_guide,
-)
 from chameleon_mcp.constants import RESOURCE_PRIORITY_KEYWORDS
-
+from chameleon_mcp.probe import (
+    _classify_provider,
+    _doc_uri_priority,
+    _format_setup_guide,
+    _probe_requirements,
+)
 
 # ---------------------------------------------------------------------------
 # _doc_uri_priority

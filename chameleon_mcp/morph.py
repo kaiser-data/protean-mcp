@@ -1,15 +1,19 @@
 import asyncio
 import inspect as _inspect
-import json
 from collections.abc import Callable
 
 from chameleon_mcp.app import mcp
 from chameleon_mcp.constants import (
-    MCP_PROTOCOL_VERSION, MCP_CLIENT_INFO,
-    TIMEOUT_STDIO_INIT, TIMEOUT_STDIO_TOOL, TIMEOUT_RESOURCE_LIST,
+    MCP_CLIENT_INFO,
+    MCP_PROTOCOL_VERSION,
+    TIMEOUT_RESOURCE_LIST,
+    TIMEOUT_STDIO_INIT,
+    TIMEOUT_STDIO_TOOL,
 )
 from chameleon_mcp.session import session
 from chameleon_mcp.transport import BaseTransport, StdioTransport
+
+_frame = StdioTransport._frame
 
 
 def _json_type_to_py(json_type: str) -> type:
@@ -46,21 +50,15 @@ async def _fetch_tools_list(install_cmd: list) -> list[dict]:
                 "clientInfo": MCP_CLIENT_INFO,
             },
         }
-        proc.stdin.write(json.dumps(init_req).encode() + b"\n")
+        proc.stdin.write(_frame(init_req))
         await proc.stdin.drain()
 
         init_resp = await StdioTransport._read_response(proc.stdout, expected_id=1, timeout=TIMEOUT_STDIO_INIT)
         if not init_resp or "error" in init_resp:
             return []
 
-        proc.stdin.write(json.dumps(
-            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
-        ).encode() + b"\n")
-        await proc.stdin.drain()
-
-        proc.stdin.write(json.dumps(
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-        ).encode() + b"\n")
+        proc.stdin.write(_frame({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}))
+        proc.stdin.write(_frame({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}))
         await proc.stdin.drain()
 
         tools_resp = await StdioTransport._read_response(proc.stdout, expected_id=2, timeout=TIMEOUT_STDIO_TOOL)

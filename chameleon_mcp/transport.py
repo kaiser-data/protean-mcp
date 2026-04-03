@@ -1,22 +1,32 @@
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-import httpx
-
 from chameleon_mcp.constants import (
-    MCP_PROTOCOL_VERSION, MCP_CLIENT_INFO,
-    TIMEOUT_STDIO_INIT, TIMEOUT_STDIO_TOOL, TIMEOUT_HTTP_TOOL,
+    MCP_CLIENT_INFO,
+    MCP_PROTOCOL_VERSION,
+    POOL_MAX_IDLE_SECONDS,
+    POOL_MAX_PROCESSES,
+    TIMEOUT_HTTP_TOOL,
     TIMEOUT_RESOURCE_LIST,
+    TIMEOUT_STDIO_INIT,
+    TIMEOUT_STDIO_TOOL,
 )
-from chameleon_mcp.utils import _estimate_tokens, _truncate, _clean_response, _extract_content
-from chameleon_mcp.credentials import SMITHERY_API_KEY, _resolve_config, _credentials_guide
+from chameleon_mcp.credentials import SMITHERY_API_KEY, _credentials_guide, _resolve_config
 from chameleon_mcp.registry import SmitheryRegistry
 from chameleon_mcp.session import session
+from chameleon_mcp.utils import (
+    _clean_response,
+    _estimate_tokens,
+    _extract_content,
+    _get_http_client,
+    _truncate,
+)
 
 
 class BaseTransport(ABC):
@@ -37,6 +47,7 @@ class _PoolEntry:
     call_count: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     name: str = ""
+    last_used_at: float = field(default_factory=time.monotonic)
 
     def pid(self) -> int | None:
         return self.proc.pid
@@ -49,6 +60,70 @@ class _PoolEntry:
 
 
 _process_pool: dict[str, _PoolEntry] = {}   # keyed by json(install_cmd, sort_keys=True)
+
+
+def _evict_stale_pool_entries() -> list[str]:
+    """Remove dead or long-idle processes from the pool. Returns evicted keys."""
+    now = time.monotonic()
+    to_remove = [
+        k for k, e in _process_pool.items()
+        if not e.is_alive() or (now - e.last_used_at) > POOL_MAX_IDLE_SECONDS
+    ]
+    for k in to_remove:
+        with contextlib.suppress(Exception):
+            _process_pool[k].proc.kill()
+        _process_pool.pop(k, None)
+    # Hard cap: if still over limit, evict oldest by last_used_at
+    if len(_process_pool) > POOL_MAX_PROCESSES:
+        oldest = sorted(_process_pool.items(), key=lambda kv: kv[1].last_used_at)
+        for k, e in oldest[:len(_process_pool) - POOL_MAX_PROCESSES]:
+            with contextlib.suppress(Exception):
+                e.proc.kill()
+            _process_pool.pop(k, None)
+    return to_remove
+
+
+async def _ping(entry: "_PoolEntry", timeout: float = 2.0) -> bool:
+    """Send tools/list to a live pool entry and confirm it responds. Non-blocking."""
+    if not entry.is_alive():
+        return False
+    try:
+        async with entry.lock:
+            msg_id = entry.next_id
+            entry.next_id += 1
+            entry.proc.stdin.write(
+                json.dumps({"jsonrpc": "2.0", "id": msg_id, "method": "tools/list", "params": {}}).encode() + b"\n"
+            )
+            await entry.proc.stdin.drain()
+            resp = await asyncio.wait_for(
+                _read_stdio_response(entry.proc.stdout, msg_id),
+                timeout=timeout,
+            )
+            return resp is not None and "error" not in resp
+    except Exception:
+        return False
+
+
+async def _read_stdio_response(reader, expected_id: int, timeout: float = 30.0) -> dict | None:
+    """Standalone version of StdioTransport._read_response for use before class definition."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return None
+        try:
+            line = await asyncio.wait_for(reader.readline(), timeout=remaining)
+        except TimeoutError:
+            return None
+        if not line:
+            return None
+        try:
+            msg = json.loads(line.decode().strip())
+            if msg.get("id") == expected_id:
+                return msg
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -94,42 +169,42 @@ class HTTPSSETransport(BaseTransport):
             )
 
         async def _run():
-            async with httpx.AsyncClient() as client:
-                r = await _post(client, {
-                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                    "params": {
-                        "protocolVersion": MCP_PROTOCOL_VERSION,
-                        "capabilities": {},
-                        "clientInfo": MCP_CLIENT_INFO,
-                    },
-                })
-                if r.status_code in (401, 403):
-                    raise PermissionError(f"HTTP {r.status_code}")
-                r.raise_for_status()
+            client = _get_http_client()
+            r = await _post(client, {
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": MCP_CLIENT_INFO,
+                },
+            })
+            if r.status_code in (401, 403):
+                raise PermissionError(f"HTTP {r.status_code}")
+            r.raise_for_status()
 
-                session_id = r.headers.get("mcp-session-id")
-                init_msg = _parse_sse(r.text)
-                if init_msg and "error" in init_msg:
-                    raise RuntimeError(f"Initialize failed: {init_msg['error']}")
+            session_id = r.headers.get("mcp-session-id")
+            init_msg = _parse_sse(r.text)
+            if init_msg and "error" in init_msg:
+                raise RuntimeError(f"Initialize failed: {init_msg['error']}")
 
-                await _post(client, {
-                    "jsonrpc": "2.0", "method": "notifications/initialized", "params": {},
-                }, session_id)
+            await _post(client, {
+                "jsonrpc": "2.0", "method": "notifications/initialized", "params": {},
+            }, session_id)
 
-                r2 = await _post(client, {
-                    "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                    "params": {"name": tool, "arguments": args},
-                }, session_id)
-                r2.raise_for_status()
+            r2 = await _post(client, {
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": tool, "arguments": args},
+            }, session_id)
+            r2.raise_for_status()
 
-                msg = _parse_sse(r2.text)
-                if msg is None:
-                    raise RuntimeError(f"Empty response: {r2.text[:200]}")
-                return msg
+            msg = _parse_sse(r2.text)
+            if msg is None:
+                raise RuntimeError(f"Empty response: {r2.text[:200]}")
+            return msg
 
         try:
             response = await asyncio.wait_for(_run(), timeout=TIMEOUT_HTTP_TOOL)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return f"Timeout connecting to {self.qualified_name}. Server may be sleeping — try again."
         except PermissionError:
             srv = await SmitheryRegistry().get_server(self.qualified_name)
@@ -151,7 +226,7 @@ class HTTPSSETransport(BaseTransport):
         result = response.get("result", {})
         raw = _extract_content(result)
 
-        tokens_out = _estimate_tokens(json.dumps({"tool": tool, "args": args}))
+        tokens_out = _estimate_tokens({"tool": tool, "args": args})
         tokens_in = _estimate_tokens(raw)
         session["stats"]["total_calls"] += 1
         session["stats"]["tokens_sent"] += tokens_out
@@ -173,24 +248,7 @@ class StdioTransport(BaseTransport):
     @staticmethod
     async def _read_response(reader, expected_id: int, timeout: float = 30.0) -> dict | None:
         """Read lines from stdout, skipping notifications, until we find expected_id."""
-        deadline = asyncio.get_event_loop().time() + timeout
-        while True:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                return None
-            try:
-                line = await asyncio.wait_for(reader.readline(), timeout=remaining)
-            except asyncio.TimeoutError:
-                return None
-            if not line:
-                return None
-            try:
-                msg = json.loads(line.decode().strip())
-                if msg.get("id") == expected_id:
-                    return msg
-                # Skip notifications (no id) and other messages
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                pass  # Skip malformed lines
+        return await _read_stdio_response(reader, expected_id, timeout)
 
     async def execute(self, tool: str, args: dict, config: dict) -> str:
         try:
@@ -224,13 +282,10 @@ class StdioTransport(BaseTransport):
             if "error" in init_resp:
                 return f"Initialize error from {self.install_cmd[0]}: {init_resp['error']}"
 
-            # 2. Notify initialized
+            # 2. Notify initialized + 3. Call tool — batched into one flush
             proc.stdin.write(self._frame(
                 {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
             ))
-            await proc.stdin.drain()
-
-            # 3. Call tool
             proc.stdin.write(self._frame({
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": tool, "arguments": args},
@@ -295,9 +350,9 @@ class PersistentStdioTransport(BaseTransport):
                 stderr=None if self.inherit_stderr else asyncio.subprocess.PIPE,
             )
         except FileNotFoundError:
-            raise RuntimeError(f"Cannot find '{self.install_cmd[0]}'. Is it installed?")
+            raise RuntimeError(f"Cannot find '{self.install_cmd[0]}'. Is it installed?") from None
         except Exception as e:
-            raise RuntimeError(f"Failed to start {self.install_cmd[0]}: {e}")
+            raise RuntimeError(f"Failed to start {self.install_cmd[0]}: {e}") from e
 
         entry = _PoolEntry(
             proc=proc,
@@ -333,7 +388,8 @@ class PersistentStdioTransport(BaseTransport):
         return entry
 
     async def _get_or_start(self) -> _PoolEntry:
-        """Return existing live pool entry or start a new one."""
+        """Return existing live pool entry or start a new one (evicts stale entries first)."""
+        _evict_stale_pool_entries()
         entry = _process_pool.get(self._pool_key)
         if entry is not None and entry.is_alive():
             return entry
@@ -430,6 +486,7 @@ class PersistentStdioTransport(BaseTransport):
                 return f"Tool error: {err.get('message', json.dumps(err))}"
 
             entry.call_count += 1
+            entry.last_used_at = time.monotonic()
             result = tool_resp.get("result", {})
             raw = _extract_content(result)
 

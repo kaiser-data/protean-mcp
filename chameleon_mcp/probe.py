@@ -3,8 +3,10 @@ import os
 import re
 
 from chameleon_mcp.constants import (
-    CRED_SUFFIXES, RESOURCE_PRIORITY_KEYWORDS, MAX_RESOURCE_DOCS,
-    PROVIDER_PARAM_SUFFIXES, TIMEOUT_TCP_PROBE,
+    CRED_SUFFIXES,
+    PROVIDER_PARAM_SUFFIXES,
+    RESOURCE_PRIORITY_KEYWORDS,
+    TIMEOUT_TCP_PROBE,
 )
 
 _ENV_VAR_RE = re.compile(r'\b([A-Z][A-Z0-9_]{3,})\b')
@@ -179,7 +181,7 @@ def _format_setup_guide(reqs: dict, name: str, tools: list | None = None) -> str
                     for v in creds:
                         lines.append(f"      key(\"{v}\", \"<your-value>\")")
                     idx += 1
-                for opt, urls, creds in local_opts:
+                for opt, urls, _creds in local_opts:
                     label = _letters[idx] if idx < len(_letters) else str(idx + 1)
                     lines.append(f"  [{label}] {opt}  (local — not running)")
                     for u in urls:

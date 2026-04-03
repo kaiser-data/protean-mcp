@@ -1,11 +1,17 @@
 """Tests for tool helper functions: _truncate, _clean_response, _estimate_tokens, _credentials_guide."""
-import pytest
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import _truncate, _clean_response, _estimate_tokens, _credentials_guide, _extract_content
+from server import (
+    _clean_response,
+    _credentials_guide,
+    _estimate_tokens,
+    _extract_content,
+    _truncate,
+)
 
 
 class TestTruncate:

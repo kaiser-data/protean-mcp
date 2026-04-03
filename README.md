@@ -10,6 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Smithery](https://smithery.ai/badge/@kaiser-data/chameleon-mcp)](https://smithery.ai/server/@kaiser-data/chameleon-mcp)
 
+**[→ 5-Minute Demo](examples/demo_wow.md)** — search, inspect, test, morph, benchmark, chain, token savings in one session.
+
 ---
 
 ## The Problem
@@ -200,11 +202,25 @@ Search the npm registry without any authentication:
 search("filesystem", registry="npm")
 ```
 
+### Official MCP Registry
+
+The [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) repository contains the reference implementations — always the safest starting point:
+
+```
+search("filesystem", registry="official")
+morph("@modelcontextprotocol/server-filesystem")
+read_file(path="/tmp/notes.txt")
+shed()
+```
+
+These servers are available instantly without any API key, and Chameleon keeps its list fresh with a 24-hour cache of the GitHub directory.
+
 ### PyPI / pip Packages
 
 Any pip-installable MCP server runs via `uvx`:
 
 ```
+search("git", registry="pypi")
 morph("mcp-server-git")
 morph("mcp-server-sqlite")
 run("uvx:mcp-server-time", "get_current_time", {})
@@ -426,7 +442,7 @@ This writes the value to `.env` in the current directory and loads it into the r
 
 | Tool | Description |
 |---|---|
-| `search(query, registry, limit)` | Search for MCP servers by task description. Searches npm (always) and Smithery (if configured). `registry` can be `"npm"`, `"smithery"`, or `"all"` (default). |
+| `search(query, registry, limit)` | Search for MCP servers by task description. `registry` can be `"all"` (default), `"official"`, `"npm"`, `"smithery"`, or `"pypi"`. |
 | `inspect(server_id)` | Show full details for a server: all tools with schemas, required credentials, connection type, and estimated token cost. |
 
 ### Execution
@@ -566,17 +582,19 @@ Claude / AI Agent
   Chameleon MCP (server.py — entry point)
        │
        ├── chameleon_mcp/
-       │     ├── registry.py    ── MultiRegistry → NpmRegistry, SmitheryRegistry
-       │     ├── transport.py   ── HTTPSSETransport, StdioTransport, PersistentStdioTransport
-       │     ├── morph.py       ── live tool registration via FastMCP.add_tool / remove_tool
-       │     ├── probe.py       ── env var detection, OAuth, schema creds, setup guide generation
-       │     ├── credentials.py ── .env I/O, config resolution
-       │     └── tools.py       ── all 16 @mcp.tool() definitions
+       │     ├── registry.py         ── MultiRegistry → OfficialMCPRegistry, SmitheryRegistry, NpmRegistry, PyPIRegistry
+       │     ├── official_registry.py── reference servers from modelcontextprotocol/servers (seed + GitHub API)
+       │     ├── transport.py        ── HTTPSSETransport, StdioTransport, PersistentStdioTransport
+       │     ├── morph.py            ── live tool registration via FastMCP.add_tool / remove_tool
+       │     ├── probe.py            ── env var detection, OAuth, schema creds, setup guide generation
+       │     ├── credentials.py      ── .env I/O, config resolution
+       │     └── tools.py            ── all 16 @mcp.tool() definitions
        │
-       ├── GitHub repos   ──► npx github:user/repo  /  uvx --from git+https://...
-       ├── NpmRegistry    ──► registry.npmjs.org  (no auth required)
-       ├── PyPI / uvx     ──► pypi.org  (no auth required)
-       └── SmitheryRegistry ──► registry.smithery.ai  (optional, requires API key)
+       ├── OfficialMCPRegistry ──► github.com/modelcontextprotocol/servers  (no auth, 24h cache)
+       ├── GitHub repos        ──► npx github:user/repo  /  uvx --from git+https://...
+       ├── NpmRegistry         ──► registry.npmjs.org  (no auth required)
+       ├── PyPIRegistry        ──► pypi.org  (no auth required)
+       └── SmitheryRegistry    ──► registry.smithery.ai  (optional, requires API key)
 ```
 
 ---
@@ -592,11 +610,11 @@ Claude / AI Agent
 - [x] bench() latency benchmarking
 - [x] setup() step-by-step configuration wizard
 - [x] Readiness probe: env vars, OAuth, schema credentials, local URL reachability
+- [x] Official MCP registry integration ([modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers))
+- [x] PyPI registry search (`search(registry="pypi")`)
+- [x] Server health monitoring in `status()` (ping + token savings vs always-on)
 - [ ] GitHub repo as a first-class `server_id` (`github:user/repo`)
-- [ ] PyPI registry search (`search(registry="pypi")`)
 - [ ] WebSocket transport
-- [ ] Server health monitoring in status()
-- [ ] Official MCP registry integration ([modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers))
 
 ---
 

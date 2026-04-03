@@ -1,15 +1,13 @@
 """Tests for StdioTransport and HTTPSSETransport."""
 import asyncio
 import json
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-
-import sys
 import os
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import StdioTransport, HTTPSSETransport
-
+from server import HTTPSSETransport, StdioTransport
 
 # ---------------------------------------------------------------------------
 # StdioTransport tests
@@ -81,8 +79,8 @@ class TestHTTPSSETransport:
 
     async def test_timeout_returns_timeout_message(self):
         """HTTPSSETransport returns timeout message on asyncio.TimeoutError."""
-        import respx
         import httpx
+        import respx
 
         async def slow_response(request):
             await asyncio.sleep(999)

@@ -1,13 +1,12 @@
 import asyncio
 import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-import httpx
-
-from chameleon_mcp.constants import TIMEOUT_FETCH_URL, MAX_EXPLORE_DESC
-from chameleon_mcp.utils import _estimate_tokens
+from chameleon_mcp.constants import MAX_EXPLORE_DESC, TIMEOUT_FETCH_URL
 from chameleon_mcp.credentials import _registry_headers, _smithery_available
+from chameleon_mcp.utils import _estimate_tokens, _get_http_client
 
 REGISTRY_BASE = "https://registry.smithery.ai"
 
@@ -34,20 +33,27 @@ class BaseRegistry(ABC):
     async def get_server(self, id: str): ...
 
 
+def _extract_credentials(server_dict: dict) -> dict:
+    credentials = {}
+    for conn in server_dict.get("connections", []):
+        for k, val in conn.get("configSchema", {}).get("properties", {}).items():
+            credentials[k] = val.get("description", "")
+    return credentials
+
+
 class SmitheryRegistry(BaseRegistry):
     async def search(self, query: str, limit: int) -> list:
         if not _smithery_available():
             return []
         try:
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    f"{REGISTRY_BASE}/servers",
-                    params={"q": f"{query} is:verified", "pageSize": limit},
-                    headers=_registry_headers(),
-                    timeout=TIMEOUT_FETCH_URL,
-                )
-                r.raise_for_status()
-                data = r.json()
+            r = await _get_http_client().get(
+                f"{REGISTRY_BASE}/servers",
+                params={"q": f"{query} is:verified", "pageSize": limit},
+                headers=_registry_headers(),
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            data = r.json()
         except Exception:
             return []
 
@@ -56,10 +62,7 @@ class SmitheryRegistry(BaseRegistry):
             qname = s.get("qualifiedName", "")
             if not qname:
                 continue
-            credentials = {}
-            for conn in s.get("connections", []):
-                for k, val in conn.get("configSchema", {}).get("properties", {}).items():
-                    credentials[k] = val.get("description", "")
+            credentials = _extract_credentials(s)
             remote = s.get("remote", False)
             results.append(ServerInfo(
                 id=qname,
@@ -79,21 +82,17 @@ class SmitheryRegistry(BaseRegistry):
         if not _smithery_available():
             return None
         try:
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    f"{REGISTRY_BASE}/servers/{id}",
-                    headers=_registry_headers(),
-                    timeout=TIMEOUT_FETCH_URL,
-                )
-                r.raise_for_status()
-                s = r.json()
+            r = await _get_http_client().get(
+                f"{REGISTRY_BASE}/servers/{id}",
+                headers=_registry_headers(),
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            s = r.json()
         except Exception:
             return None
 
-        credentials = {}
-        for conn in s.get("connections", []):
-            for k, val in conn.get("configSchema", {}).get("properties", {}).items():
-                credentials[k] = val.get("description", "")
+        credentials = _extract_credentials(s)
         tools = s.get("tools") or []
         remote = s.get("remote", False)
         qname = s.get("qualifiedName", id)
@@ -116,14 +115,13 @@ class NpmRegistry(BaseRegistry):
 
     async def search(self, query: str, limit: int) -> list:
         try:
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    "https://registry.npmjs.org/-/v1/search",
-                    params={"text": f"mcp-server {query}", "size": limit * 2},
-                    timeout=TIMEOUT_FETCH_URL,
-                )
-                r.raise_for_status()
-                data = r.json()
+            r = await _get_http_client().get(
+                "https://registry.npmjs.org/-/v1/search",
+                params={"text": f"mcp-server {query}", "size": limit * 2},
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            data = r.json()
         except Exception:
             return []
 
@@ -155,13 +153,12 @@ class NpmRegistry(BaseRegistry):
 
     async def get_server(self, id: str):
         try:
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    f"https://registry.npmjs.org/{id}",
-                    timeout=TIMEOUT_FETCH_URL,
-                )
-                r.raise_for_status()
-                pkg = r.json()
+            r = await _get_http_client().get(
+                f"https://registry.npmjs.org/{id}",
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            pkg = r.json()
         except Exception:
             return None
 
@@ -182,17 +179,103 @@ class NpmRegistry(BaseRegistry):
         )
 
 
-class MultiRegistry(BaseRegistry):
-    """Fan out to all registries, dedup by name, Smithery results first."""
-
-    def __init__(self):
-        self._registries = [SmitheryRegistry(), NpmRegistry()]
+class PyPIRegistry(BaseRegistry):
+    """Search PyPI for MCP server packages (installed via uvx)."""
 
     async def search(self, query: str, limit: int) -> list:
+        try:
+            r = await _get_http_client().get(
+                "https://pypi.org/search/",
+                params={"q": f"mcp-server {query}"},
+                headers={"Accept": "text/html"},
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            names = re.findall(r'class="package-snippet__name"[^>]*>\s*([^<\s][^<]*?)\s*<', r.text)
+            descs = re.findall(r'class="package-snippet__description"[^>]*>\s*([^<]*?)\s*<', r.text)
+        except Exception:
+            return []
+
+        results = []
+        for i, name in enumerate(names[:limit]):
+            name = name.strip()
+            if not name:
+                continue
+            desc = descs[i].strip() if i < len(descs) else ""
+            results.append(ServerInfo(
+                id=name,
+                name=name,
+                description=desc[:MAX_EXPLORE_DESC],
+                source="pypi",
+                transport="stdio",
+                url="",
+                install_cmd=["uvx", name],
+                credentials={},
+                tools=[],
+                token_cost=0,
+            ))
+        return results
+
+    async def get_server(self, id: str):
+        try:
+            r = await _get_http_client().get(
+                f"https://pypi.org/pypi/{id}/json",
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            data = r.json()
+        except Exception:
+            return None
+
+        info = data.get("info", {})
+        desc = (info.get("summary") or "").strip()
+        return ServerInfo(
+            id=id,
+            name=id,
+            description=desc,
+            source="pypi",
+            transport="stdio",
+            url="",
+            install_cmd=["uvx", id],
+            credentials={},
+            tools=[],
+            token_cost=0,
+        )
+
+
+_CACHE_TTL_SERVER = 300.0   # 5 minutes — server metadata rarely changes
+_CACHE_TTL_SEARCH = 60.0    # 1 minute — search results can shift
+
+
+class MultiRegistry(BaseRegistry):
+    """Fan out to all registries, dedup by name, Official → Smithery → npm priority."""
+
+    def __init__(self):
+        from chameleon_mcp.official_registry import OfficialMCPRegistry
+        self._registries = [OfficialMCPRegistry(), SmitheryRegistry(), NpmRegistry()]
+        self._server_cache: dict[str, tuple] = {}   # id → (ServerInfo|None, expires_at)
+        self._search_cache: dict[tuple, tuple] = {} # (query, limit) → (list, expires_at)
+
+    def bust_cache(self, server_id: str | None = None) -> None:
+        """Invalidate cache. Pass server_id to bust a single entry, or None for all."""
+        if server_id is None:
+            self._server_cache.clear()
+            self._search_cache.clear()
+        else:
+            self._server_cache.pop(server_id, None)
+
+    async def search(self, query: str, limit: int) -> list:
+        cache_key = (query, limit)
+        now = time.monotonic()
+        if cache_key in self._search_cache:
+            cached, expires = self._search_cache[cache_key]
+            if now < expires:
+                return cached
+
         tasks = [reg.search(query, limit) for reg in self._registries]
         all_results = await asyncio.gather(*tasks, return_exceptions=True)
         seen = set()
-        smithery_results, npm_results = [], []
+        official_results, smithery_results, npm_results = [], [], []
         for batch in all_results:
             if isinstance(batch, Exception):
                 continue
@@ -200,18 +283,30 @@ class MultiRegistry(BaseRegistry):
                 k = re.sub(r'[^a-z0-9]', '', srv.name.lower())
                 if k not in seen:
                     seen.add(k)
-                    if srv.source == "smithery":
+                    if srv.source == "official":
+                        official_results.append(srv)
+                    elif srv.source == "smithery":
                         smithery_results.append(srv)
                     else:
                         npm_results.append(srv)
-        return (smithery_results + npm_results)[:limit]
+        result = (official_results + smithery_results + npm_results)[:limit]
+        self._search_cache[cache_key] = (result, now + _CACHE_TTL_SEARCH)
+        return result
 
     async def get_server(self, id: str):
-        for reg in self._registries:
-            result = await reg.get_server(id)
-            if result:
-                return result
-        return None
+        now = time.monotonic()
+        if id in self._server_cache:
+            cached, expires = self._server_cache[id]
+            if now < expires:
+                return cached
+
+        results = await asyncio.gather(
+            *[reg.get_server(id) for reg in self._registries],
+            return_exceptions=True,
+        )
+        result = next((r for r in results if r and not isinstance(r, Exception)), None)
+        self._server_cache[id] = (result, now + _CACHE_TTL_SERVER)
+        return result
 
 
 _registry = MultiRegistry()
