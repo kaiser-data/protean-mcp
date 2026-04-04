@@ -554,3 +554,36 @@ class WebSocketTransport(BaseTransport):
         session["stats"]["total_calls"] += 1
         session["stats"]["tokens_received"] += tokens_in
         return _truncate(_clean_response(raw_text))
+
+
+class DockerTransport(BaseTransport):
+    """Run an MCP server inside a Docker container via stdio.
+
+    Uses `docker run --rm -i --memory <limit>` so the container is:
+    - ephemeral (--rm auto-removes it on exit)
+    - RAM-capped (default 512m, override via config["memory"])
+    - pooled through PersistentStdioTransport — shares the 10-process hard cap
+
+    Usage:
+        call("docker:mcp/my-image:latest", "tool_name", {...})
+        call("docker:my-image", "tool_name", {...}, config={"memory": "256m"})
+    """
+
+    def __init__(self, image: str):
+        self.image = image
+
+    def _build_cmd(self, config: dict) -> list[str]:
+        memory = str(config.get("memory") or "512m")
+        cmd = [
+            "docker", "run", "--rm", "-i",
+            "--label", "chameleon-mcp=1",
+            "--memory", memory,
+        ]
+        for k, v in (config.get("env") or {}).items():
+            cmd += ["-e", f"{k}={v}"]
+        cmd.append(self.image)
+        return cmd
+
+    async def execute(self, tool: str, args: dict, config: dict) -> str:
+        cmd = self._build_cmd(config)
+        return await PersistentStdioTransport(cmd).execute(tool, args, config)

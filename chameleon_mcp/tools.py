@@ -39,9 +39,10 @@ from chameleon_mcp.registry import (
     SmitheryRegistry,
     _registry,
 )
-from chameleon_mcp.session import session
+from chameleon_mcp.session import _save_skills, session
 from chameleon_mcp.transport import (
     BaseTransport,
+    DockerTransport,
     HTTPSSETransport,
     PersistentStdioTransport,
     StdioTransport,
@@ -155,8 +156,10 @@ async def call(
     if missing:
         return _credentials_guide(server_id, credentials, resolved_config)
 
-    if server_id.startswith(("ws://", "wss://")):
-        transport: BaseTransport = WebSocketTransport(server_id)
+    if server_id.startswith("docker:"):
+        transport: BaseTransport = DockerTransport(server_id[len("docker:"):])
+    elif server_id.startswith(("ws://", "wss://")):
+        transport = WebSocketTransport(server_id)
     elif srv and srv.transport == "websocket":
         transport = WebSocketTransport(srv.url)
     elif srv and srv.transport == "stdio":
@@ -252,8 +255,35 @@ def _is_safe_url(url: str) -> bool:
 
 
 @mcp.tool()
-async def skill(qualified_name: str) -> str:
-    """Inject a Smithery skill into context. Requires API key."""
+async def skill(qualified_name: str, forget: bool = False) -> str:
+    """Inject a Smithery skill into context. Skills are persisted across sessions.
+
+    qualified_name: Smithery skill ID (e.g. 'org/skill-name')
+    forget: if True, remove the skill from context and disk instead of injecting it
+    """
+    # --- forget / uninstall ---
+    if forget:
+        if qualified_name in session["skills"]:
+            name = session["skills"][qualified_name].get("name", qualified_name)
+            del session["skills"][qualified_name]
+            _save_skills()
+            return f"Skill removed: {name} ({qualified_name})"
+        return f"Skill '{qualified_name}' is not installed."
+
+    # --- serve from cache if already loaded ---
+    cached = session["skills"].get(qualified_name)
+    if cached and cached.get("content"):
+        content = cached["content"]
+        skill_name = cached.get("name", qualified_name)
+        token_estimate = cached.get("tokens", len(content) // 4)
+        lines = [
+            f"Skill injected (cached): {skill_name} ({qualified_name})",
+            f"Context cost: ~{token_estimate:,} tokens",
+            "", "--- SKILL CONTENT ---", "", content,
+        ]
+        return "\n".join(lines)
+
+    # --- fetch from Smithery API ---
     if not _smithery_available():
         return "No SMITHERY_API_KEY set. Run: key('SMITHERY_API_KEY', 'your-key')"
 
@@ -305,6 +335,7 @@ async def skill(qualified_name: str) -> str:
         "tokens": token_estimate,
         "installed_at": datetime.utcnow().isoformat(),
     }
+    _save_skills()
 
     lines = [
         f"Skill injected: {skill_name} ({qualified_name})",

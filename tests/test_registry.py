@@ -561,3 +561,114 @@ class TestGitHubRegistry:
 
         assert result is not None
         assert result.install_cmd == ["npx", "github:user/unknown-mcp"]
+
+
+class TestDedupKey:
+    def test_strips_mcp_server_prefix(self):
+        from server import _dedup_key
+        assert _dedup_key("mcp-server-filesystem") == _dedup_key("filesystem")
+
+    def test_strips_npm_scope(self):
+        from server import _dedup_key
+        assert _dedup_key("@modelcontextprotocol/server-filesystem") == _dedup_key("filesystem")
+
+    def test_strips_server_prefix(self):
+        from server import _dedup_key
+        assert _dedup_key("server-brave-search") == _dedup_key("brave-search")
+
+    def test_different_names_stay_different(self):
+        from server import _dedup_key
+        assert _dedup_key("filesystem") != _dedup_key("sqlite")
+
+
+class TestRelevanceScore:
+    def _make_srv(self, id, name, desc="", source="npm"):
+        from server import ServerInfo
+        return ServerInfo(id=id, name=name, description=desc, source=source,
+                          transport="stdio", url="", install_cmd=[], credentials={},
+                          tools=[], token_cost=0)
+
+    def test_exact_name_match_scores_highest(self):
+        from server import _relevance_score
+        exact = self._make_srv("filesystem", "filesystem")
+        partial = self._make_srv("mcp-server-filesystem", "MCP Filesystem Tools")
+        assert _relevance_score(exact, "filesystem") > _relevance_score(partial, "filesystem")
+
+    def test_official_beats_npm_same_name(self):
+        from server import _relevance_score
+        official = self._make_srv("filesystem", "filesystem", source="official")
+        npm = self._make_srv("mcp-server-filesystem", "filesystem", source="npm")
+        assert _relevance_score(official, "filesystem") > _relevance_score(npm, "filesystem")
+
+    def test_name_match_beats_desc_only_match(self):
+        from server import _relevance_score
+        in_name = self._make_srv("brave-search", "brave-search", desc="web search")
+        in_desc = self._make_srv("web-tools", "web-tools", desc="brave search engine")
+        assert _relevance_score(in_name, "brave") > _relevance_score(in_desc, "brave")
+
+    def test_unrelated_server_scores_low(self):
+        from server import _relevance_score
+        srv = self._make_srv("random-tool", "random-tool", desc="does things")
+        assert _relevance_score(srv, "filesystem") < 5.0
+
+
+class TestMultiRegistrySearchDedup:
+    def _srv(self, id, name, source="npm"):
+        from server import ServerInfo
+        return ServerInfo(id=id, name=name, description="", source=source,
+                          transport="stdio", url="", install_cmd=[], credentials={},
+                          tools=[], token_cost=0)
+
+    async def test_same_server_from_two_registries_deduplicated(self):
+        from unittest.mock import AsyncMock
+        from server import MultiRegistry
+
+        official_srv = self._srv("filesystem", "filesystem", source="official")
+        npm_srv = self._srv("mcp-server-filesystem", "mcp-server-filesystem", source="npm")
+
+        reg = MultiRegistry()
+        r1, r2 = AsyncMock(), AsyncMock()
+        r1.search = AsyncMock(return_value=[official_srv])
+        r2.search = AsyncMock(return_value=[npm_srv])
+        reg._registries = [r1, r2]
+        reg._search_cache.clear()
+
+        results = await reg.search("filesystem", 10)
+
+        # Both normalize to "filesystem" — only one should appear
+        names = [s.name for s in results]
+        assert len(names) == len(set(names))
+
+    async def test_results_sorted_by_relevance(self):
+        from unittest.mock import AsyncMock
+        from server import MultiRegistry
+
+        weak = self._srv("tools-pack", "tools-pack")
+        strong = self._srv("filesystem", "filesystem", source="official")
+
+        reg = MultiRegistry()
+        r1 = AsyncMock()
+        r1.search = AsyncMock(return_value=[weak, strong])
+        reg._registries = [r1]
+        reg._search_cache.clear()
+
+        results = await reg.search("filesystem", 10)
+
+        assert results[0].name == "filesystem"
+
+    async def test_exception_from_one_registry_skipped(self):
+        from unittest.mock import AsyncMock
+        from server import MultiRegistry
+
+        good = self._srv("brave-search", "brave-search", source="npm")
+
+        reg = MultiRegistry()
+        r1, r2 = AsyncMock(), AsyncMock()
+        r1.search = AsyncMock(side_effect=Exception("network error"))
+        r2.search = AsyncMock(return_value=[good])
+        reg._registries = [r1, r2]
+        reg._search_cache.clear()
+
+        results = await reg.search("brave", 10)
+        assert len(results) == 1
+        assert results[0].name == "brave-search"

@@ -351,22 +351,18 @@ class MultiRegistry(BaseRegistry):
 
         tasks = [reg.search(query, limit) for reg in self._registries]
         all_results = await asyncio.gather(*tasks, return_exceptions=True)
-        seen = set()
-        official_results, smithery_results, npm_results = [], [], []
+        seen: set[str] = set()
+        candidates: list[ServerInfo] = []
         for batch in all_results:
             if isinstance(batch, Exception):
                 continue
             for srv in batch:
-                k = re.sub(r'[^a-z0-9]', '', srv.name.lower())
-                if k not in seen:
+                k = _dedup_key(srv.name)
+                if k and k not in seen:
                     seen.add(k)
-                    if srv.source == "official":
-                        official_results.append(srv)
-                    elif srv.source == "smithery":
-                        smithery_results.append(srv)
-                    else:
-                        npm_results.append(srv)
-        result = (official_results + smithery_results + npm_results)[:limit]
+                    candidates.append(srv)
+        candidates.sort(key=lambda s: _relevance_score(s, query), reverse=True)
+        result = candidates[:limit]
         self._search_cache[cache_key] = (result, now + _CACHE_TTL_SEARCH)
         return result
 
@@ -384,6 +380,60 @@ class MultiRegistry(BaseRegistry):
         result = next((r for r in results if r and not isinstance(r, Exception)), None)
         self._server_cache[id] = (result, now + _CACHE_TTL_SERVER)
         return result
+
+
+_SOURCE_TIER: dict[str, int] = {
+    "official": 0,
+    "smithery": 1,
+    "npm": 2,
+    "github": 3,
+    "pypi": 4,
+}
+
+_STRIP_PREFIXES = re.compile(
+    r'^(?:@[^/]+/)?(?:mcp-server-|server-mcp-|mcp-|server-)?', re.IGNORECASE
+)
+
+
+def _dedup_key(name: str) -> str:
+    """Normalize a server name for cross-registry deduplication."""
+    core = _STRIP_PREFIXES.sub("", name.lower())
+    return re.sub(r'[^a-z0-9]', '', core)
+
+
+def _relevance_score(srv: ServerInfo, query: str) -> float:
+    """Higher is better. Combines name/description match quality with source tier."""
+    words = re.split(r'\W+', query.lower())
+    name_lc = srv.name.lower()
+    id_lc = srv.id.lower()
+    desc_lc = srv.description.lower()
+
+    score = 0.0
+
+    # Exact id or name match
+    if query.lower() in (name_lc, id_lc):
+        score += 100.0
+
+    # All query words appear in name
+    if all(w in name_lc for w in words if w):
+        score += 50.0
+    elif any(w in name_lc for w in words if w):
+        score += 20.0
+
+    # Query as substring in name
+    if query.lower() in name_lc:
+        score += 10.0
+
+    # Words in description
+    if all(w in desc_lc for w in words if w):
+        score += 5.0
+    elif any(w in desc_lc for w in words if w):
+        score += 2.0
+
+    # Source tier tiebreaker (lower tier = higher score)
+    score -= _SOURCE_TIER.get(srv.source, 5) * 0.1
+
+    return score
 
 
 _registry = MultiRegistry()

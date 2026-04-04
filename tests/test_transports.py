@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import HTTPSSETransport, StdioTransport, WebSocketTransport
+from server import DockerTransport, HTTPSSETransport, StdioTransport, WebSocketTransport
 
 # ---------------------------------------------------------------------------
 # StdioTransport tests
@@ -157,3 +157,76 @@ class TestWebSocketTransport:
             result = await transport.execute("tool", {}, {})
 
         assert "WebSocket error" in result
+
+
+# ---------------------------------------------------------------------------
+# DockerTransport tests
+# ---------------------------------------------------------------------------
+
+class TestDockerTransport:
+    """DockerTransport builds correct docker run command and delegates to PersistentStdioTransport."""
+
+    def test_build_cmd_defaults(self):
+        t = DockerTransport("mcp/my-image:latest")
+        cmd = t._build_cmd({})
+        assert cmd[0] == "docker"
+        assert "--rm" in cmd
+        assert "-i" in cmd
+        assert "--memory" in cmd
+        assert "512m" in cmd
+        assert "mcp/my-image:latest" == cmd[-1]
+
+    def test_build_cmd_custom_memory(self):
+        t = DockerTransport("mcp/image")
+        cmd = t._build_cmd({"memory": "256m"})
+        idx = cmd.index("--memory")
+        assert cmd[idx + 1] == "256m"
+
+    def test_build_cmd_env_vars_injected(self):
+        t = DockerTransport("mcp/image")
+        cmd = t._build_cmd({"env": {"API_KEY": "abc", "DEBUG": "1"}})
+        assert "-e" in cmd
+        assert "API_KEY=abc" in cmd
+        assert "DEBUG=1" in cmd
+
+    def test_build_cmd_label_set(self):
+        t = DockerTransport("mcp/image")
+        cmd = t._build_cmd({})
+        assert "--label" in cmd
+        label_idx = cmd.index("--label")
+        assert cmd[label_idx + 1] == "chameleon-mcp=1"
+
+    async def test_missing_docker_returns_friendly_message(self):
+        t = DockerTransport("mcp/nonexistent-image:latest")
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("docker")):
+            result = await t.execute("some_tool", {}, {})
+        assert "docker" in result.lower() or "Cannot find" in result or "Failed" in result
+
+    async def test_execute_delegates_to_persistent_transport(self):
+        """DockerTransport builds cmd and delegates; result passes through."""
+        import json as _json
+        from unittest.mock import AsyncMock, MagicMock
+
+        init_msg = _json.dumps({"jsonrpc": "2.0", "id": 1, "result": {
+            "protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "t", "version": "1"},
+        }}).encode() + b"\n"
+        tool_msg = _json.dumps({"jsonrpc": "2.0", "id": 3, "result": {
+            "content": [{"type": "text", "text": "docker result"}],
+        }}).encode() + b"\n"
+
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdin.close = MagicMock()
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(side_effect=[init_msg, b"\n", tool_msg, b""])
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock(return_value=0)
+
+        t = DockerTransport("mcp/test-image")
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+            result = await t.execute("my_tool", {"x": 1}, {})
+
+        assert "docker result" in result

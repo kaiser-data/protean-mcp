@@ -50,11 +50,18 @@ from chameleon_mcp.registry import (  # noqa: E402, F401
     PyPIRegistry,
     ServerInfo,
     SmitheryRegistry,
+    _dedup_key,
     _detect_github_install_cmd,
     _extract_credentials,
     _registry,
+    _relevance_score,
 )
-from chameleon_mcp.session import session  # noqa: E402, F401
+from chameleon_mcp.session import (  # noqa: E402, F401
+    SKILLS_PATH,
+    _load_skills,
+    _save_skills,
+    session,
+)
 from chameleon_mcp.tools import (  # noqa: E402, F401
     _BASE_TOOL_NAMES,
     auto,
@@ -76,6 +83,7 @@ from chameleon_mcp.tools import (  # noqa: E402, F401
 )
 from chameleon_mcp.transport import (  # noqa: E402, F401
     BaseTransport,
+    DockerTransport,
     HTTPSSETransport,
     PersistentStdioTransport,
     StdioTransport,

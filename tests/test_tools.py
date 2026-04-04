@@ -1,5 +1,6 @@
 """Tests for tool helper functions: _truncate, _clean_response, _estimate_tokens, _credentials_guide."""
 
+import json
 import os
 import sys
 
@@ -10,7 +11,10 @@ from server import (
     _credentials_guide,
     _estimate_tokens,
     _extract_content,
+    _load_skills,
+    _save_skills,
     _truncate,
+    session,
 )
 
 
@@ -150,3 +154,62 @@ class TestExtractContent:
         result = {"someKey": "someValue"}
         out = _extract_content(result)
         assert "someKey" in out
+
+
+class TestSkillPersistence:
+    """_load_skills / _save_skills round-trip tests."""
+
+    def _make_skill(self, name="test-skill", content="do the thing"):
+        return {
+            "name": name,
+            "content": content,
+            "tokens": len(content) // 4,
+            "installed_at": "2026-01-01T00:00:00",
+        }
+
+    def test_save_and_load_round_trip(self, tmp_path, monkeypatch):
+        import chameleon_mcp.session as sess_mod
+
+        skills_file = tmp_path / "skills.json"
+        monkeypatch.setattr(sess_mod, "SKILLS_PATH", skills_file)
+
+        session["skills"]["org/my-skill"] = self._make_skill()
+        _save_skills()
+
+        assert skills_file.exists()
+        data = json.loads(skills_file.read_text())
+        assert "org/my-skill" in data
+        assert data["org/my-skill"]["content"] == "do the thing"
+
+    def test_load_populates_session(self, tmp_path, monkeypatch):
+        import chameleon_mcp.session as sess_mod
+
+        skills_file = tmp_path / "skills.json"
+        skills_file.write_text(json.dumps({"org/loaded-skill": self._make_skill("loaded")}))
+        monkeypatch.setattr(sess_mod, "SKILLS_PATH", skills_file)
+
+        # Clear session and reload
+        session["skills"].clear()
+        _load_skills()
+
+        assert "org/loaded-skill" in session["skills"]
+        assert session["skills"]["org/loaded-skill"]["name"] == "loaded"
+
+    def test_load_missing_file_is_silent(self, tmp_path, monkeypatch):
+        import chameleon_mcp.session as sess_mod
+
+        monkeypatch.setattr(sess_mod, "SKILLS_PATH", tmp_path / "nonexistent.json")
+        session["skills"].clear()
+        _load_skills()  # should not raise
+        assert session["skills"] == {}
+
+    def test_load_corrupt_file_is_silent(self, tmp_path, monkeypatch):
+        import chameleon_mcp.session as sess_mod
+
+        skills_file = tmp_path / "skills.json"
+        skills_file.write_text("not valid json{{{")
+        monkeypatch.setattr(sess_mod, "SKILLS_PATH", skills_file)
+
+        session["skills"].clear()
+        _load_skills()  # should not raise
+        assert session["skills"] == {}
