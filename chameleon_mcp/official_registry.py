@@ -121,15 +121,20 @@ async def _fetch_live_servers() -> list[ServerInfo]:
         servers.append(_server_from_seed(s))
         seen_ids.add(s["id"])
 
+    # Map directory names to their actual package names (some differ from dirname)
+    _NPM_NAME_OVERRIDES = {
+        "sequentialthinking": "sequential-thinking",
+    }
+    _PIP_DIRS = {"git", "time", "fetch"}
+
     # Add any directories not covered by the seed list
     for dirname in dirs:
-        # Guess npm vs pip by checking whether a known pip server matches
-        if dirname in ("git", "time", "fetch"):
+        if dirname in _PIP_DIRS:
             pkg_id = f"mcp-server-{dirname}"
             install_cmd = ["uvx", pkg_id]
         else:
-            # Assume npm
-            pkg_id = f"@modelcontextprotocol/server-{dirname}"
+            pkg_suffix = _NPM_NAME_OVERRIDES.get(dirname, dirname)
+            pkg_id = f"@modelcontextprotocol/server-{pkg_suffix}"
             install_cmd = ["npx", "-y", pkg_id]
         if pkg_id in seen_ids:
             continue

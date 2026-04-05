@@ -672,3 +672,235 @@ class TestMultiRegistrySearchDedup:
         results = await reg.search("brave", 10)
         assert len(results) == 1
         assert results[0].name == "brave-search"
+
+
+# ---------------------------------------------------------------------------
+# McpRegistryIO tests
+# ---------------------------------------------------------------------------
+
+class TestMcpRegistryIO:
+    """McpRegistryIO wraps registry.modelcontextprotocol.io — no auth."""
+
+    _RESPONSE = {
+        "servers": [
+            {
+                "server": {
+                    "name": "owner/my-mcp-server",
+                    "description": "A great MCP server for testing",
+                    "packages": [
+                        {
+                            "registry_name": "npm",
+                            "name": "@owner/my-mcp-server",
+                            "environment_variables": [
+                                {"name": "MY_API_KEY", "description": "Your API key"}
+                            ],
+                        }
+                    ],
+                    "remotes": [],
+                }
+            },
+            {
+                "server": {
+                    "name": "other/pip-server",
+                    "description": "A pip-based MCP server",
+                    "packages": [
+                        {
+                            "registry_name": "pypi",
+                            "name": "pip-mcp-server",
+                            "environment_variables": [],
+                        }
+                    ],
+                    "remotes": [],
+                }
+            },
+        ],
+        "metadata": {"nextCursor": None, "count": 2},
+    }
+
+    async def test_search_returns_servers(self):
+        import chameleon_mcp.registry as reg_mod
+        from server import McpRegistryIO
+        reg_mod.McpRegistryIO._cache = None
+        reg_mod.McpRegistryIO._cache_expires = 0.0
+        with respx.mock:
+            respx.get("https://registry.modelcontextprotocol.io/v0/servers").mock(
+                return_value=httpx.Response(200, json=self._RESPONSE)
+            )
+            reg = McpRegistryIO()
+            results = await reg.search("mcp server", 10)
+        assert len(results) == 2
+        assert results[0].source == "mcpregistry"
+
+    async def test_npm_package_gets_npx_install_cmd(self):
+        import chameleon_mcp.registry as reg_mod
+        from server import McpRegistryIO
+        reg_mod.McpRegistryIO._cache = None
+        reg_mod.McpRegistryIO._cache_expires = 0.0
+        with respx.mock:
+            respx.get("https://registry.modelcontextprotocol.io/v0/servers").mock(
+                return_value=httpx.Response(200, json=self._RESPONSE)
+            )
+            reg = McpRegistryIO()
+            results = await reg.search("my-mcp", 10)
+        npm_srv = next(s for s in results if "owner/my-mcp" in s.id)
+        assert npm_srv.install_cmd == ["npx", "-y", "@owner/my-mcp-server"]
+
+    async def test_pypi_package_gets_uvx_install_cmd(self):
+        import chameleon_mcp.registry as reg_mod
+        from server import McpRegistryIO
+        reg_mod.McpRegistryIO._cache = None
+        reg_mod.McpRegistryIO._cache_expires = 0.0
+        with respx.mock:
+            respx.get("https://registry.modelcontextprotocol.io/v0/servers").mock(
+                return_value=httpx.Response(200, json=self._RESPONSE)
+            )
+            reg = McpRegistryIO()
+            results = await reg.search("pip", 10)
+        pip_srv = next(s for s in results if "pip-server" in s.id)
+        assert pip_srv.install_cmd == ["uvx", "pip-mcp-server"]
+
+    async def test_credentials_extracted_from_env_vars(self):
+        import chameleon_mcp.registry as reg_mod
+        from server import McpRegistryIO
+        reg_mod.McpRegistryIO._cache = None
+        reg_mod.McpRegistryIO._cache_expires = 0.0
+        with respx.mock:
+            respx.get("https://registry.modelcontextprotocol.io/v0/servers").mock(
+                return_value=httpx.Response(200, json=self._RESPONSE)
+            )
+            reg = McpRegistryIO()
+            result = await reg.get_server("owner/my-mcp-server")
+        assert result is not None
+        assert "MY_API_KEY" in result.credentials
+
+    async def test_http_error_returns_empty(self):
+        import chameleon_mcp.registry as reg_mod
+        from server import McpRegistryIO
+        reg_mod.McpRegistryIO._cache = None
+        reg_mod.McpRegistryIO._cache_expires = 0.0
+        with respx.mock:
+            respx.get("https://registry.modelcontextprotocol.io/v0/servers").mock(
+                return_value=httpx.Response(503, text="Unavailable")
+            )
+            reg = McpRegistryIO()
+            results = await reg.search("anything", 5)
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# GlamaRegistry tests
+# ---------------------------------------------------------------------------
+
+class TestGlamaRegistry:
+    """GlamaRegistry wraps glama.ai/api/mcp/v1/servers — no auth."""
+
+    _SEARCH_RESPONSE = {
+        "pageInfo": {"hasNextPage": False, "endCursor": None},
+        "servers": [
+            {
+                "name": "brave-search",
+                "namespace": "example",
+                "slug": "brave-search",
+                "description": "Web search via Brave",
+                "attributes": ["hosting:local-only"],
+                "repository": {"url": "https://github.com/example/brave-search"},
+                "url": "https://glama.ai/mcp/servers/abc123",
+                "environmentVariablesJsonSchema": {
+                    "properties": {"BRAVE_API_KEY": {"description": "Brave API key"}},
+                    "required": ["BRAVE_API_KEY"],
+                },
+            },
+            {
+                "name": "time-server",
+                "namespace": "example",
+                "slug": "time-server",
+                "description": "Get current time",
+                "attributes": ["hosting:local-only"],
+                "repository": {"url": "https://github.com/example/time-server"},
+                "url": "https://glama.ai/mcp/servers/def456",
+                "environmentVariablesJsonSchema": {
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        ],
+    }
+
+    async def test_search_returns_glama_servers(self):
+        from server import GlamaRegistry
+        with respx.mock:
+            respx.get("https://glama.ai/api/mcp/v1/servers").mock(
+                return_value=httpx.Response(200, json=self._SEARCH_RESPONSE)
+            )
+            reg = GlamaRegistry()
+            results = await reg.search("brave", 5)
+        assert len(results) >= 1
+        assert results[0].source == "glama"
+
+    async def test_required_env_vars_become_credentials(self):
+        from server import GlamaRegistry
+        with respx.mock:
+            respx.get("https://glama.ai/api/mcp/v1/servers").mock(
+                return_value=httpx.Response(200, json=self._SEARCH_RESPONSE)
+            )
+            reg = GlamaRegistry()
+            results = await reg.search("brave", 5)
+        brave = next(s for s in results if "brave" in s.name)
+        assert "BRAVE_API_KEY" in brave.credentials
+
+    async def test_optional_env_vars_not_in_credentials(self):
+        from server import GlamaRegistry
+        with respx.mock:
+            respx.get("https://glama.ai/api/mcp/v1/servers").mock(
+                return_value=httpx.Response(200, json=self._SEARCH_RESPONSE)
+            )
+            reg = GlamaRegistry()
+            results = await reg.search("time", 5)
+        time_srv = next(s for s in results if "time" in s.name)
+        assert time_srv.credentials == {}
+
+    async def test_github_url_becomes_install_cmd(self):
+        from server import GlamaRegistry
+        with respx.mock:
+            respx.get("https://glama.ai/api/mcp/v1/servers").mock(
+                return_value=httpx.Response(200, json=self._SEARCH_RESPONSE)
+            )
+            reg = GlamaRegistry()
+            results = await reg.search("brave", 5)
+        brave = next(s for s in results if "brave" in s.name)
+        assert brave.install_cmd == ["npx", "github:example/brave-search"]
+
+    async def test_http_error_returns_empty(self):
+        from server import GlamaRegistry
+        with respx.mock:
+            respx.get("https://glama.ai/api/mcp/v1/servers").mock(
+                return_value=httpx.Response(503, text="Unavailable")
+            )
+            reg = GlamaRegistry()
+            results = await reg.search("anything", 5)
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# Relevance score: credential preference
+# ---------------------------------------------------------------------------
+
+class TestRelevanceScoreCredentialBonus:
+    def _srv(self, id, name, credentials=None, source="npm"):
+        from server import ServerInfo
+        return ServerInfo(id=id, name=name, description="web search tool", source=source,
+                          transport="stdio", url="", install_cmd=[],
+                          credentials=credentials or {}, tools=[], token_cost=0)
+
+    def test_no_cred_server_ranks_above_cred_server(self):
+        from server import _relevance_score
+        free = self._srv("brave-search-free", "brave search", credentials={})
+        paid = self._srv("brave-search-paid", "brave search", credentials={"BRAVE_API_KEY": "key"})
+        assert _relevance_score(free, "brave search") > _relevance_score(paid, "brave search")
+
+    def test_cred_bonus_does_not_override_strong_name_match(self):
+        from server import _relevance_score
+        # A server with creds but exact name match should still beat a no-cred server with weak match
+        exact_cred = self._srv("filesystem", "filesystem", credentials={"FS_KEY": "key"})
+        weak_free = self._srv("tools-pack", "tools pack", credentials={})
+        assert _relevance_score(exact_cred, "filesystem") > _relevance_score(weak_free, "filesystem")

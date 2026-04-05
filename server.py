@@ -45,6 +45,8 @@ from chameleon_mcp.registry import (  # noqa: E402, F401
     REGISTRY_BASE,
     BaseRegistry,
     GitHubRegistry,
+    GlamaRegistry,
+    McpRegistryIO,
     MultiRegistry,
     NpmRegistry,
     PyPIRegistry,

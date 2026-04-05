@@ -27,4 +27,9 @@ POOL_MAX_PROCESSES    = 10     # hard cap on concurrent pool entries
 OFFICIAL_REGISTRY_URL       = "https://raw.githubusercontent.com/modelcontextprotocol/servers/main/servers.json"
 OFFICIAL_REGISTRY_CACHE_TTL = 86400  # 24 hours — list rarely changes
 
+MCP_REGISTRY_IO_URL   = "https://registry.modelcontextprotocol.io/v0/servers"
+MCP_REGISTRY_IO_TTL   = 3600   # 1 hour — entries are published formally, stable
+GLAMA_REGISTRY_URL    = "https://glama.ai/api/mcp/v1/servers"
+GLAMA_REGISTRY_TTL    = 3600   # 1 hour
+
 PROVIDER_PARAM_SUFFIXES = ("provider", "engine", "backend", "service", "mode")

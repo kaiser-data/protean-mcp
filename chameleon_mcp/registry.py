@@ -4,7 +4,14 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from chameleon_mcp.constants import MAX_EXPLORE_DESC, TIMEOUT_FETCH_URL
+from chameleon_mcp.constants import (
+    GLAMA_REGISTRY_TTL,
+    GLAMA_REGISTRY_URL,
+    MAX_EXPLORE_DESC,
+    MCP_REGISTRY_IO_TTL,
+    MCP_REGISTRY_IO_URL,
+    TIMEOUT_FETCH_URL,
+)
 from chameleon_mcp.credentials import _registry_headers, _smithery_available
 from chameleon_mcp.utils import _estimate_tokens, _get_http_client
 
@@ -329,7 +336,14 @@ class MultiRegistry(BaseRegistry):
 
     def __init__(self):
         from chameleon_mcp.official_registry import OfficialMCPRegistry
-        self._registries = [OfficialMCPRegistry(), GitHubRegistry(), SmitheryRegistry(), NpmRegistry()]
+        self._registries = [
+            OfficialMCPRegistry(),
+            McpRegistryIO(),
+            GitHubRegistry(),
+            SmitheryRegistry(),
+            GlamaRegistry(),
+            NpmRegistry(),
+        ]
         self._server_cache: dict[str, tuple] = {}   # id → (ServerInfo|None, expires_at)
         self._search_cache: dict[tuple, tuple] = {} # (query, limit) → (list, expires_at)
 
@@ -384,10 +398,12 @@ class MultiRegistry(BaseRegistry):
 
 _SOURCE_TIER: dict[str, int] = {
     "official": 0,
-    "smithery": 1,
-    "npm": 2,
-    "github": 3,
-    "pypi": 4,
+    "mcpregistry": 1,
+    "smithery": 2,
+    "glama": 3,
+    "npm": 4,
+    "github": 5,
+    "pypi": 6,
 }
 
 _STRIP_PREFIXES = re.compile(
@@ -430,10 +446,214 @@ def _relevance_score(srv: ServerInfo, query: str) -> float:
     elif any(w in desc_lc for w in words if w):
         score += 2.0
 
+    # Prefer servers that need no credentials (zero-config bonus)
+    if not srv.credentials:
+        score += 3.0
+
     # Source tier tiebreaker (lower tier = higher score)
-    score -= _SOURCE_TIER.get(srv.source, 5) * 0.1
+    score -= _SOURCE_TIER.get(srv.source, 7) * 0.1
 
     return score
+
+
+class McpRegistryIO(BaseRegistry):
+    """Official MCP Protocol registry at registry.modelcontextprotocol.io — no auth required."""
+
+    _cache: list[ServerInfo] | None = None
+    _cache_expires: float = 0.0
+
+    @classmethod
+    def _install_cmd(cls, server: dict) -> list[str]:
+        """Derive install command from the first package entry."""
+        for pkg in server.get("packages") or []:
+            reg = pkg.get("registry_name", "")
+            name = pkg.get("name", "")
+            if not name:
+                continue
+            if reg == "npm":
+                return ["npx", "-y", name]
+            if reg in ("pypi", "pip"):
+                return ["uvx", name]
+        return []
+
+    @classmethod
+    def _credentials(cls, server: dict) -> dict:
+        creds: dict = {}
+        for pkg in server.get("packages") or []:
+            for ev in pkg.get("environment_variables") or []:
+                name = ev.get("name", "")
+                if name:
+                    creds[name] = ev.get("description", "")
+        return creds
+
+    @classmethod
+    def _transport(cls, server: dict) -> str:
+        if server.get("remotes"):
+            return "http"
+        return "stdio"
+
+    @classmethod
+    def _to_server_info(cls, entry: dict) -> ServerInfo | None:
+        srv = entry.get("server") or entry  # top-level or nested
+        name = srv.get("name", "")
+        if not name:
+            return None
+        return ServerInfo(
+            id=name,
+            name=name.split("/")[-1],
+            description=(srv.get("description") or "").strip()[:MAX_EXPLORE_DESC],
+            source="mcpregistry",
+            transport=cls._transport(srv),
+            url=(srv.get("remotes") or [{}])[0].get("url", "") if srv.get("remotes") else "",
+            install_cmd=cls._install_cmd(srv),
+            credentials=cls._credentials(srv),
+            tools=[],
+            token_cost=0,
+        )
+
+    async def _all_servers(self) -> list[ServerInfo]:
+        now = time.monotonic()
+        if self._cache is not None and now < self._cache_expires:
+            return self._cache
+
+        servers: list[ServerInfo] = []
+        cursor: str | None = None
+        client = _get_http_client()
+        for _ in range(10):  # max 10 pages to avoid infinite loops
+            params: dict = {"limit": 50}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                r = await client.get(MCP_REGISTRY_IO_URL, params=params, timeout=TIMEOUT_FETCH_URL)
+                r.raise_for_status()
+                data = r.json()
+            except Exception:
+                break
+            for entry in data.get("servers") or []:
+                srv = self._to_server_info(entry)
+                if srv:
+                    servers.append(srv)
+            cursor = (data.get("metadata") or {}).get("nextCursor")
+            if not cursor:
+                break
+
+        McpRegistryIO._cache = servers
+        McpRegistryIO._cache_expires = now + MCP_REGISTRY_IO_TTL
+        return servers
+
+    async def search(self, query: str, limit: int) -> list[ServerInfo]:
+        servers = await self._all_servers()
+        if not query:
+            return servers[:limit]
+        q = query.lower()
+        return [
+            s for s in servers
+            if q in s.name.lower() or q in s.description.lower() or q in s.id.lower()
+        ][:limit]
+
+    async def get_server(self, id: str) -> ServerInfo | None:
+        servers = await self._all_servers()
+        return next((s for s in servers if s.id == id or s.name == id), None)
+
+
+class GlamaRegistry(BaseRegistry):
+    """Glama MCP server directory — no auth required."""
+
+    _cache: list[ServerInfo] | None = None
+    _cache_expires: float = 0.0
+
+    @classmethod
+    def _to_server_info(cls, entry: dict) -> ServerInfo | None:
+        name = entry.get("name", "")
+        if not name:
+            return None
+        namespace = entry.get("namespace", "")
+        slug = entry.get("slug", name)
+        server_id = f"{namespace}/{slug}" if namespace else slug
+        repo_url = (entry.get("repository") or {}).get("url", "")
+        # Derive install_cmd from GitHub repo URL when available
+        install_cmd: list[str] = []
+        if repo_url and "github.com" in repo_url:
+            # Use github: shorthand; actual npm vs pip detected lazily by GitHubRegistry
+            parts = repo_url.rstrip("/").split("github.com/")[-1].split("/")
+            if len(parts) >= 2:
+                install_cmd = ["npx", f"github:{parts[0]}/{parts[1]}"]
+        # Credentials from environmentVariablesJsonSchema
+        env_schema = entry.get("environmentVariablesJsonSchema") or {}
+        props = env_schema.get("properties") or {}
+        required = set(env_schema.get("required") or [])
+        creds = {k: (v.get("description") or "") for k, v in props.items() if k in required}
+        attributes = entry.get("attributes") or []
+        transport = "http" if "hosting:remote-capable" in attributes else "stdio"
+        return ServerInfo(
+            id=server_id,
+            name=name,
+            description=(entry.get("description") or "").strip()[:MAX_EXPLORE_DESC],
+            source="glama",
+            transport=transport,
+            url=entry.get("url", ""),
+            install_cmd=install_cmd,
+            credentials=creds,
+            tools=[],
+            token_cost=0,
+        )
+
+    async def _all_servers(self) -> list[ServerInfo]:
+        now = time.monotonic()
+        if self._cache is not None and now < self._cache_expires:
+            return self._cache
+
+        servers: list[ServerInfo] = []
+        cursor: str | None = None
+        client = _get_http_client()
+        for _ in range(20):  # Glama has many servers — up to 20 pages
+            params: dict = {"first": 50}
+            if cursor:
+                params["after"] = cursor
+            try:
+                r = await client.get(GLAMA_REGISTRY_URL, params=params, timeout=TIMEOUT_FETCH_URL)
+                r.raise_for_status()
+                data = r.json()
+            except Exception:
+                break
+            for entry in data.get("servers") or []:
+                srv = self._to_server_info(entry)
+                if srv:
+                    servers.append(srv)
+            page_info = data.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                break
+
+        GlamaRegistry._cache = servers
+        GlamaRegistry._cache_expires = now + GLAMA_REGISTRY_TTL
+        return servers
+
+    async def search(self, query: str, limit: int) -> list[ServerInfo]:
+        # Glama supports server-side query filtering
+        client = _get_http_client()
+        try:
+            r = await client.get(
+                GLAMA_REGISTRY_URL,
+                params={"first": limit * 2, "query": query},
+                timeout=TIMEOUT_FETCH_URL,
+            )
+            r.raise_for_status()
+            data = r.json()
+            results = []
+            for entry in data.get("servers") or []:
+                srv = self._to_server_info(entry)
+                if srv:
+                    results.append(srv)
+            return results[:limit]
+        except Exception:
+            return []
+
+    async def get_server(self, id: str) -> ServerInfo | None:
+        servers = await self._all_servers()
+        return next((s for s in servers if s.id == id or s.name == id), None)
 
 
 _registry = MultiRegistry()
