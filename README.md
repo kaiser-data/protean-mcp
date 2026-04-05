@@ -202,7 +202,7 @@ Search the npm registry without any authentication:
 search("filesystem", registry="npm")
 ```
 
-### Official MCP Registry
+### Official MCP Registry (GitHub seed list)
 
 The [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) repository contains the reference implementations — always the safest starting point:
 
@@ -214,6 +214,26 @@ shed()
 ```
 
 These servers are available instantly without any API key, and Chameleon keeps its list fresh with a 24-hour cache of the GitHub directory.
+
+### Official MCP Protocol Registry
+
+The [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io) is the formal registry maintained by the MCP protocol team. Servers here have structured package metadata including exact install commands and required environment variables:
+
+```
+search("web search", registry="mcpregistry")
+```
+
+No API key required. Results include `source: mcpregistry` in search output.
+
+### Glama Community Directory
+
+[glama.ai](https://glama.ai/mcp/servers) is a large community directory of MCP servers with quality signals and credential schema data:
+
+```
+search("database", registry="glama")
+```
+
+No API key required. Only `required` environment variables become credentials — optional env vars are excluded.
 
 ### PyPI / pip Packages
 
@@ -443,7 +463,7 @@ This writes the value to `.env` in the current directory and loads it into the r
 
 | Tool | Description |
 |---|---|
-| `search(query, registry, limit)` | Search for MCP servers by task description. `registry` can be `"all"` (default), `"official"`, `"npm"`, `"smithery"`, or `"pypi"`. Results are deduplicated across registries and ranked by relevance. |
+| `search(query, registry, limit)` | Search for MCP servers by task description. `registry` can be `"all"` (default), `"official"`, `"mcpregistry"`, `"glama"`, `"npm"`, `"smithery"`, or `"pypi"`. Results are deduplicated across registries and ranked by relevance (zero-config servers ranked above credentialed equivalents). |
 | `inspect(server_id)` | Show full details for a server: all tools with schemas, required credentials, connection type, and estimated token cost. |
 
 ### Execution
@@ -616,10 +636,12 @@ Claude / AI Agent
        │     └── tools.py            ── all 16 @mcp.tool() definitions
        │
        ├── OfficialMCPRegistry ──► github.com/modelcontextprotocol/servers  (no auth, 24h cache)
+       ├── McpRegistryIO       ──► registry.modelcontextprotocol.io  (no auth, 1h cache)
        ├── GitHub repos        ──► npx github:user/repo  /  uvx --from git+https://...
+       ├── SmitheryRegistry    ──► registry.smithery.ai  (optional, requires API key)
+       ├── GlamaRegistry       ──► glama.ai/mcp/servers  (no auth, 1h cache)
        ├── NpmRegistry         ──► registry.npmjs.org  (no auth required)
-       ├── PyPIRegistry        ──► pypi.org  (no auth required)
-       └── SmitheryRegistry    ──► registry.smithery.ai  (optional, requires API key)
+       └── PyPIRegistry        ──► pypi.org  (no auth required)
 ```
 
 ---

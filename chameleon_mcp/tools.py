@@ -69,13 +69,27 @@ _BASE_TOOL_NAMES = {
 
 @mcp.tool()
 async def search(query: str, registry: str = "all", limit: int = 5) -> str:
-    """Search for MCP servers. registry: 'all'|'smithery'|'npm'|'pypi'."""
+    """Search for MCP servers.
+
+    registry: 'all' (default) | 'official' | 'mcpregistry' | 'smithery' | 'glama' | 'npm' | 'pypi'
+      all         — fan-out across all registries, deduplicated and ranked
+      official    — modelcontextprotocol/servers reference implementations (no auth)
+      mcpregistry — registry.modelcontextprotocol.io (official MCP protocol registry, no auth)
+      smithery    — smithery.ai (requires SMITHERY_API_KEY)
+      glama       — glama.ai community directory (no auth)
+      npm         — npmjs.com packages
+      pypi        — PyPI packages (installed via uvx)
+    """
     if registry == "smithery":
         reg = SmitheryRegistry()
     elif registry == "npm":
         reg = NpmRegistry()
     elif registry == "pypi":
         reg = PyPIRegistry()
+    elif registry in ("official", "mcpregistry", "glama"):
+        from chameleon_mcp.registry import GlamaRegistry, McpRegistryIO
+        from chameleon_mcp.official_registry import OfficialMCPRegistry
+        reg = {"official": OfficialMCPRegistry(), "mcpregistry": McpRegistryIO(), "glama": GlamaRegistry()}[registry]
     else:
         reg = _registry
 
