@@ -1,7 +1,7 @@
 <div align="center">
   <img src="chameleon-logo.png" alt="Chameleon MCP" width="200" />
   <h1>🦎 Chameleon MCP</h1>
-  <p><strong>Morph into any MCP server — live, no config, minimal tokens.</strong></p>
+  <p><strong>The dynamic MCP hub — morph into any server at runtime.<br/>Built for adaptive agents and MCP developers alike.</strong></p>
 </div>
 
 [![PyPI](https://img.shields.io/pypi/v/chameleon-mcp?color=blue)](https://pypi.org/project/chameleon-mcp/)
@@ -12,22 +12,22 @@
 
 ---
 
-## The core idea
+## A new way to use MCP
 
-One server in your config. Become any other server on demand.
+MCP has so far been mostly static — configure servers at startup, all tools loaded forever, restart required for any change. Chameleon changes that.
+
+**One entry in your config. Any server, on demand, at runtime.**
 
 ```
-search("web scraping")                            # find it
-morph("@modelcontextprotocol/server-puppeteer")   # inject its tools live — no restart
+search("web scraping")                            # discover
+morph("@modelcontextprotocol/server-puppeteer")   # inject tools live — no restart
 puppeteer_navigate(url="https://example.com")     # call them natively
 shed()                                            # clean exit
 ```
 
-**6 tools. ~240 tokens overhead. Zero config edits.**
+`morph()` registers a server's tools directly via FastMCP's live API — no wrapper, no indirection, no config edit. `shed()` removes them cleanly. The whole session costs **6 tools and ~240 tokens overhead**.
 
-`morph()` registers a server's tools directly on Chameleon via FastMCP's live API — no wrapper, no indirection. `shed()` removes them cleanly. The whole session costs less than having one extra server permanently configured.
-
-Need only specific tools? Use lean morph:
+Need only specific tools? Lean morph keeps overhead surgical:
 ```
 morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file"])
 # only 2 tools appear instead of 10
@@ -35,9 +35,33 @@ morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file
 
 ---
 
-## The Problem
+## Built for two audiences
 
-Thousands of MCP servers exist, but trying one means: find it, edit `mcp.json`, restart your client, use it briefly, edit `mcp.json` again. Every configured server also sends its full tool list on **every request** — 5 servers × 10 tools × ~250 tokens = 12,500 tokens burned before you've said a word.
+### Adaptive agents
+
+An agent that loads all tools upfront burns tokens and flexibility. An agent that morphs on demand stays lean and adaptable:
+
+- `morph()` switches the entire capability set in one call — ~240 tokens, no restart
+- Acquire a tool for the current task, shed it, acquire the next
+- Chain across multiple servers in one session without touching config
+- `morph(server_id, tools=[...])` for surgical selection — only the tools actually needed
+
+This is the first MCP hub designed around the token budget of a real agent loop.
+
+### MCP developers
+
+Beyond MCP Inspector's basic schema viewer, Chameleon gives you a full development workflow inside your actual AI client:
+
+| Need | Tool |
+|---|---|
+| Explore a server's tools and schemas | `inspect(server_id)` |
+| Quality-score your server end-to-end | `test(server_id)` → score 0–100 |
+| Benchmark tool latency | `bench(server_id, tool, args)` → p50, p95, min, max |
+| Prototype endpoint-backed tools live | `craft(name, description, params, url)` |
+| Test inside real Claude/Cursor workflows | `morph()` → call tools natively → `shed()` |
+| Compare two servers side by side | morph one, test, shed, morph the other |
+
+No separate web UI. No isolated test environment. Test how your server actually behaves when an AI uses it.
 
 ---
 
@@ -45,12 +69,10 @@ Thousands of MCP servers exist, but trying one means: find it, edit `mcp.json`, 
 
 | | `chameleon-mcp` | `chameleon-forge` |
 |---|---|---|
-| **Purpose** | Everyday morphing | Evaluation + crafting |
+| **Purpose** | Adaptive agents, everyday morphing | MCP evaluation, benchmarking, crafting |
 | **Tools** | 6 (morph, shed, search, inspect, key, status) | All 17 |
 | **Token overhead** | ~240 tokens | ~825 tokens |
-| **Use when** | Switching fast between servers, agents morphing on demand | Discovering, benchmarking, prototyping custom tools |
-
-**Ideal for agents** — `morph()` switches an agent's entire capability set in one call. Acquire a tool, do the work, shed it, acquire the next — no config changes, no restarts, minimal token cost.
+| **Use when** | Agents morphing per task, minimal token budget | Discovering, testing, benchmarking, prototyping |
 
 Both modes from the same package:
 
@@ -71,7 +93,7 @@ Both modes from the same package:
 
 `morph()` injects tools directly at runtime via FastMCP's live API. Token overhead stays flat regardless of how many servers you explore.
 
-Need the full evaluation suite? `chameleon-forge` adds execution, connections, benchmarking, and tool crafting:
+Need the full evaluation suite? `chameleon-forge` adds execution, connection management, benchmarking, and tool crafting:
 
 <div align="center">
   <img src="docs/architecture-forge.svg" alt="Chameleon Forge — extended suite" width="700"/>
@@ -157,9 +179,11 @@ The morphed tools appear natively — no extra prompt overhead, no indirection.
 
 ## Why Not Just X?
 
-**"Can't I just add more servers to `mcp.json`?"** — Every configured server starts at launch and exposes all tools constantly. You can't add or remove mid-session without a restart. Chameleon's tool list stays minimal; morph in what you need, shed it when done.
+**"Can't I just add more servers to `mcp.json`?"** — Every configured server starts at launch and exposes all tools constantly. You can't add or remove mid-session without a restart. With 5+ servers you're burning thousands of tokens on every request for tools rarely needed. Chameleon keeps the tool list minimal — morph in what you need, shed it when done.
 
-**"What about `mcp-dynamic-proxy`?"** — It hides tools behind `call_tool("brave", "web_search", {...})` — always a wrapper. After `morph("mcp-server-brave-search")`, Chameleon gives you a real native `brave_web_search` with the actual schema. Plus mcp-dynamic-proxy requires a static config file; it can't discover or install packages at runtime.
+**"What about MCP Inspector?"** — MCP Inspector is a standalone web UI that connects to one server and lets you inspect schemas and call tools manually. It's useful for basic debugging but isolated from real AI workflows. Chameleon tests servers inside actual Claude or Cursor sessions — how an AI really uses them. It adds `test()` scoring, `bench()` latency numbers, side-by-side server comparison, and `craft()` for live endpoint prototyping. It also discovers and installs servers on demand; Inspector requires you to already have one running.
+
+**"What about `mcp-dynamic-proxy`?"** — It hides tools behind `call_tool("brave", "web_search", {...})` — always a wrapper. After `morph("mcp-server-brave-search")`, Chameleon gives you a real native `brave_web_search` with the actual schema. It also can't discover or install packages at runtime.
 
 **"Can FastMCP do this natively?"**
 
@@ -206,7 +230,6 @@ Get a free key at [smithery.ai/account/api-keys](https://smithery.ai/account/api
 
 ```
 key("BRAVE_API_KEY", "your-key")   # saved to .env, auto-loaded next session
-key("EXA_API_KEY",   "your-key")
 ```
 
 ---
@@ -246,15 +269,42 @@ Everything above, plus:
 
 ## Usage Examples
 
-### Official servers — no API key
+### Adaptive agent — multi-server session, zero config
 
 ```
-morph("@modelcontextprotocol/server-filesystem")
-read_file(path="/tmp/notes.txt")
+# Task 1: read some files
+morph("@modelcontextprotocol/server-filesystem", tools=["read_file"])
+read_file(path="/tmp/data.csv")
 shed()
 
-morph("@modelcontextprotocol/server-git")
-git_log(repo_path="/path/to/repo", max_count=10)
+# Task 2: search the web
+morph("mcp-server-brave-search")
+brave_web_search(query="latest MCP servers 2025")
+shed()
+
+# Task 3: run a git query
+morph("@modelcontextprotocol/server-git", tools=["git_log"])
+git_log(repo_path=".", max_count=5)
+shed()
+# Three different servers. One session. Zero config edits.
+```
+
+### MCP developer workflow — test your server
+
+```
+# Evaluate your server before publishing
+inspect("my-server")               # review schemas and credentials
+test("my-server")                  # quality score 0–100
+bench("my-server", "my_tool", {})  # p50, p95 latency
+
+# Prototype a tool backed by your local endpoint
+craft(
+    name="my_tool",
+    description="Calls my ranking service",
+    params={"query": {"type": "string"}},
+    url="http://localhost:8080/rank"
+)
+my_tool(query="test")   # call it natively inside Claude
 shed()
 ```
 
@@ -268,14 +318,6 @@ brave_web_search(query="MCP protocol 2025")
 shed()
 ```
 
-### Lean morph — only the tools you need
-
-```
-morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "list_directory"])
-read_file(path="/tmp/notes.txt")
-shed()
-```
-
 ### Persistent server with setup guidance
 
 ```
@@ -286,19 +328,6 @@ setup("voice")                      # confirms ready
 morph("voice-mode")
 speak(text="Hello from Chameleon!")
 shed(release=True)                  # kills process, frees RAM
-```
-
-### craft() — prototype against your own endpoint
-
-```
-craft(
-    name="my_ranker",
-    description="Rank results by relevance",
-    params={"results": {"type": "array"}, "query": {"type": "string"}},
-    url="http://localhost:8080/rank"
-)
-my_ranker(results=[...], query="MCP servers")
-shed()
 ```
 
 ---
