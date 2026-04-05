@@ -1,7 +1,7 @@
 <div align="center">
   <img src="chameleon-logo.png" alt="Chameleon MCP" width="200" />
   <h1>🦎 Chameleon MCP</h1>
-  <p><strong>Find, try, and benchmark any MCP server in 2 minutes — without touching a config file.</strong></p>
+  <p><strong>Morph into any MCP server — live, no config, minimal tokens.</strong></p>
 </div>
 
 [![PyPI](https://img.shields.io/pypi/v/chameleon-mcp?color=blue)](https://pypi.org/project/chameleon-mcp/)
@@ -10,36 +10,56 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Smithery](https://smithery.ai/badge/@kaiser-data/chameleon-mcp)](https://smithery.ai/server/@kaiser-data/chameleon-mcp)
 
-**[→ 5-Minute Demo](examples/demo_wow.md)** — search, inspect, test, morph, benchmark, chain, token savings in one session.
+---
+
+## The core idea
+
+One server in your config. Become any other server on demand.
+
+```
+search("web scraping")                            # find it
+morph("@modelcontextprotocol/server-puppeteer")   # inject its tools live — no restart
+puppeteer_navigate(url="https://example.com")     # call them exactly like native tools
+shed()                                            # clean exit
+```
+
+**6 tools. ~240 tokens overhead. Zero config edits.**
+
+`morph()` registers a server's tools directly on Chameleon via FastMCP's live API. Claude sees `puppeteer_navigate` natively — no wrapper, no indirection. `shed()` removes them cleanly. The whole session costs less than having one extra server configured permanently.
+
+Need only specific tools? Lean morph keeps token overhead surgical:
+```
+morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file"])
+# only 2 tools appear instead of 10
+```
 
 ---
 
 ## The Problem
 
-There are thousands of MCP servers. You have no idea which ones are worth using.
+There are thousands of MCP servers. Trying even one means: find it, figure out the install command, edit `mcp.json`, restart your client, use it for five minutes, then edit `mcp.json` again to remove it. One server. One at a time. Meanwhile every configured server sends its full tool list on **every single request** — 5 servers × 10 tools × ~250 tokens = 12,500 tokens burned before you've said a word.
 
-Trying even one means: find it, figure out the install command, edit `mcp.json`, restart your client, use it for five minutes, then edit `mcp.json` again to remove it. One server. One at a time. No way to compare, measure, or discover alternatives mid-session.
-
-So most people configure 2–3 servers once and never explore further. The ecosystem has thousands of servers, but the tooling makes evaluation impossible.
+So most people configure 2–3 servers once and never explore further.
 
 ---
 
-## What Chameleon MCP Does
+## Two modes
 
-Chameleon is a **single MCP server you configure once** that can become any other server on demand — and gives you tools to evaluate them properly.
+| | `chameleon-mcp` | `chameleon-forge` |
+|---|---|---|
+| **Purpose** | Everyday morphing | Evaluation + crafting |
+| **Tools** | 6 (morph, shed, search, inspect, key, status) | All 17 |
+| **Token overhead** | ~240 tokens | ~825 tokens |
+| **Use when** | You know what you want, just need to use it | Discovering, benchmarking, prototyping |
 
+Both installed from the same package. Switch anytime with `CHAMELEON_TOOLS`:
+
+```json
+{ "command": "chameleon-mcp" }                        ← lean (default)
+{ "command": "chameleon-forge" }                      ← full suite
+{ "command": "chameleon-mcp",
+  "env": { "CHAMELEON_TOOLS": "morph,shed,key" } }    ← custom
 ```
-search("web scraping")                            # find candidates across GitHub, npm, PyPI, Smithery
-inspect("@modelcontextprotocol/server-puppeteer") # see tools + schema before committing
-morph("@modelcontextprotocol/server-puppeteer")   # inject those tools live — no restart
-puppeteer_navigate(url="https://example.com")     # use them exactly like native tools
-bench("@modelcontextprotocol/server-puppeteer")   # measure p50/p95 latency and token cost
-shed()                                            # clean removal when done
-```
-
-No config edits. No restarts. Search before you install, benchmark before you commit, swap without friction.
-
-The key primitive is `morph()`: it downloads a server's tool definitions and registers them **directly onto Chameleon** via FastMCP's live tool API. Claude sees those tools exactly as if the server were configured natively — no wrapper, no indirection. `shed()` removes them cleanly.
 
 ---
 
@@ -103,11 +123,7 @@ async with stdio_client(server_params) as (read, write):
 pip install chameleon-mcp
 ```
 
-### 2. Configure your MCP client
-
-Add Chameleon **once, globally** — it will be available in every project and every session.
-
-**Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+### 2. Add to your MCP client — once, globally
 
 ```json
 {
@@ -119,49 +135,40 @@ Add Chameleon **once, globally** — it will be available in every project and e
 }
 ```
 
-**Claude Code** — edit `~/.claude/mcp.json` for global access across all projects:
-
-```json
-{
-  "mcpServers": {
-    "chameleon": {
-      "command": "chameleon-mcp"
-    }
-  }
-}
-```
-
-**Other clients** (Cursor, Continue.dev, Zed): add the same block to their respective MCP config file.
-
-That's it — no API keys needed to start. Chameleon is now available in every session, in every project folder.
+That's it. No API keys needed. Works with Claude Desktop, Claude Code, Cursor, Continue.dev, Zed.
 
 ### 3. Use it
 
-**From a GitHub repository (official MCP servers):**
 ```
 morph("@modelcontextprotocol/server-filesystem")
 read_file(path="/tmp/notes.txt")
 shed()
 ```
 
-**From an npm package:**
 ```
-morph("@modelcontextprotocol/server-brave-search")
-brave_web_search(query="MCP protocol 2025")
+search("web scraping")
+morph("mcp-server-puppeteer")
+puppeteer_navigate(url="https://example.com")
 shed()
 ```
 
-**From a GitHub repo directly:**
+Only need specific tools? Lean morph keeps token cost minimal:
 ```
-connect("uvx --from git+https://github.com/user/my-mcp-server my-server", name="myserver")
+morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file"])
 ```
 
-**With Smithery registry (optional — gives access to 3,000+ hosted servers):**
-```
-search("web search")          → find servers in registry
-morph("exa/exa")              → take the form of Exa
-web_search_exa(query="...")   → call the tool natively
-shed()                        → return to base form
+### Want the full evaluation suite?
+
+Use `chameleon-forge` for benchmarking, testing, and tool prototyping:
+
+```json
+{
+  "mcpServers": {
+    "chameleon": {
+      "command": "chameleon-forge"
+    }
+  }
+}
 ```
 
 ---
@@ -459,57 +466,56 @@ This writes the value to `.env` in the current directory and loads it into the r
 
 ## All Tools
 
-### Discovery
+### `chameleon-mcp` — lean profile (6 tools, ~240 token overhead)
 
 | Tool | Description |
 |---|---|
-| `search(query, registry, limit)` | Search for MCP servers by task description. `registry` can be `"all"` (default), `"official"`, `"mcpregistry"`, `"glama"`, `"npm"`, `"smithery"`, or `"pypi"`. Results are deduplicated across registries and ranked by relevance (zero-config servers ranked above credentialed equivalents). |
-| `inspect(server_id)` | Show full details for a server: all tools with schemas, required credentials, connection type, and estimated token cost. |
+| `morph(server_id, tools)` | Inject a server's tools live. `tools=[...]` for lean morph — only register the tools you need. |
+| `shed(release)` | Remove morphed tools. `release=True` kills the process and frees RAM immediately. |
+| `search(query, registry)` | Search MCP servers. `registry`: all \| official \| mcpregistry \| glama \| npm \| smithery \| pypi |
+| `inspect(server_id)` | Show server tools, schemas, and required credentials. |
+| `key(env_var, value)` | Save an API key to `.env` permanently and load it immediately. |
+| `status()` | Show current form, active connections (PID + RAM), and token stats. |
 
-### Execution
+### `chameleon-forge` — full suite (all 17 tools, ~825 token overhead)
 
-| Tool | Description |
-|---|---|
-| `call(server_id, tool, args, config)` | Call a single tool on any server without morphing. One-shot — no process is kept alive. |
-| `run(package, tool, args)` | Run a tool from any npm or pip package by name. Supports `uvx:package-name` for pip packages. No registry lookup needed. |
-| `auto(task, tool, args)` | Full pipeline in one call: search → pick best server → call tool. |
-| `fetch(url, intent)` | Fetch a URL and return cleaned, compressed text (~17x smaller than raw HTML). |
+Everything in the lean profile, plus:
 
-### Shape-shifting
-
-| Tool | Description |
-|---|---|
-| `morph(server_id, tools)` | Take the form of a server — its tools are registered directly on Chameleon and callable by name. Replaces the current form if one is active. Pass `tools=["read_file", "write_file"]` to register only those tools (lean morph — keeps token count low). |
-| `shed(release)` | Drop the current form and remove its tools. `release=True` also kills the underlying process and frees RAM immediately; default `False` keeps it pooled for fast re-morph. |
-| `craft(name, description, params, url, method, headers)` | Define a custom tool backed by your own HTTP endpoint — it appears live in the session immediately. POST sends args as JSON body; GET sends as query string. Optional `headers` for auth. `shed()` removes crafted tools. |
-
-### Persistent connections
+**Execution**
 
 | Tool | Description |
 |---|---|
-| `connect(command, name, inherit_stderr)` | Start a persistent MCP server process. `command` can be a registry server ID (e.g. `"filesystem"`) or a full shell command (e.g. `"npx -y @modelcontextprotocol/server-filesystem"`). The process stays alive between calls. |
-| `release(name)` | Kill a persistent connection and free its resources. |
-| `setup(name)` | Step-by-step configuration wizard for a connected server. Shows exactly what is missing and how to fix it. Call repeatedly until all requirements are satisfied. |
+| `call(server_id, tool, args)` | One-shot tool call on any server — no morph needed. |
+| `run(package, tool, args)` | Run from npm/pip directly. `uvx:pkg-name` for Python packages. |
+| `auto(task, tool, args)` | Search → pick best server → call in one step. |
+| `fetch(url, intent)` | Fetch a URL, return compressed text (~17x smaller than raw HTML). |
 
-### Quality & benchmarking
-
-| Tool | Description |
-|---|---|
-| `test(server_id, level)` | Run quality checks on a server and return a score from 0–100. Checks connectivity, tool schema validity, response format, and latency. |
-| `bench(server_id, tool, args, n)` | Run a tool `n` times and return latency statistics: p50, p95, min, max. |
-
-### Configuration
+**Shape-shifting**
 
 | Tool | Description |
 |---|---|
-| `key(env_var, value)` | Save an API key to `.env` permanently and load it into the current session immediately. |
-| `skill(qualified_name)` | Fetch a Smithery skill prompt and inject it into context (requires Smithery key). Skills are persisted to `~/.chameleon/skills.json` and available across sessions. |
+| `craft(name, description, params, url)` | Register a custom tool backed by your HTTP endpoint — live immediately. POST=JSON body, GET=query params. `shed()` removes it. |
 
-### Status
+**Persistent connections**
 
 | Tool | Description |
 |---|---|
-| `status()` | Show current form, active persistent connections (with PID and RAM usage), morphed tools, and token usage statistics. |
+| `connect(command, name)` | Start a persistent server. `command`: server_id or shell cmd. |
+| `release(name)` | Kill a persistent connection by name. |
+| `setup(name)` | Setup wizard for a connected server. Call repeatedly until ready. |
+
+**Quality & benchmarking**
+
+| Tool | Description |
+|---|---|
+| `test(server_id, level)` | Quality-score a server 0–100. `level`: basic or full (live calls). |
+| `bench(server_id, tool, args)` | Benchmark tool latency — p50, p95, min, max ms. |
+
+**Skills**
+
+| Tool | Description |
+|---|---|
+| `skill(qualified_name)` | Load a Smithery skill into context. Persisted across sessions. |
 
 ---
 
@@ -702,6 +708,9 @@ Claude / AI Agent
 - [x] inspect() shows live tool schemas from running processes
 - [x] craft() — endpoint-backed custom tools, live prototype against any HTTP server
 - [x] morph(tools=[...]) — lean morph, register only the tools you need
+- [x] lean-by-default — 6-tool profile, ~240 token overhead vs ~825 for full suite
+- [x] CHAMELEON_TOOLS env var — surgical tool selection per deployment
+- [x] chameleon-forge entry point — full evaluation suite as a separate command
 
 ---
 
