@@ -65,13 +65,17 @@ Both installed from the same package. Switch anytime with `CHAMELEON_TOOLS`:
 
 ## How It Fits Together
 
-Chameleon acts as a **single, stable entry point** in your MCP config. Everything else is dynamic:
-
 <div align="center">
-  <img src="docs/architecture.svg" alt="Chameleon MCP architecture diagram" width="820"/>
+  <img src="docs/architecture.svg" alt="Chameleon MCP — lean profile" width="700"/>
 </div>
 
-This works because Chameleon uses FastMCP's live tool registration API — tools are added and removed from a running server at runtime, not at startup.
+One entry in your config. `morph()` injects a server's tools directly via FastMCP's live API — added and removed at runtime, not at startup. `shed()` cleans up. Token overhead stays flat regardless of how many servers you explore.
+
+Need the full evaluation suite? `chameleon-forge` adds execution, connection management, benchmarking, and tool crafting:
+
+<div align="center">
+  <img src="docs/architecture-forge.svg" alt="Chameleon Forge — extended suite" width="700"/>
+</div>
 
 ---
 
