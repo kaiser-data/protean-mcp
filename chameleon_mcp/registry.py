@@ -427,7 +427,10 @@ class MultiRegistry(BaseRegistry):
             *[reg.get_server(id) for reg in self._registries],
             return_exceptions=True,
         )
-        result = next((r for r in results if r and not isinstance(r, Exception)), None)
+        valid = [r for r in results if r and not isinstance(r, Exception)]
+        # Prefer a result that has tools cached (e.g. Smithery) over one that doesn't
+        # (e.g. McpRegistryIO), so morph() can work without a prior inspect().
+        result = next((r for r in valid if r.tools), None) or (valid[0] if valid else None)
         self._server_cache[id] = (result, now + _CACHE_TTL_SERVER)
         return result
 
