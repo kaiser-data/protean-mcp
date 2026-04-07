@@ -25,7 +25,7 @@ puppeteer_navigate(url="https://example.com")     # call them natively
 shed()                                            # clean exit
 ```
 
-`morph()` registers a server's tools directly via FastMCP's live API — no wrapper, no indirection, no config edit. `shed()` removes them cleanly. The whole session costs **6 tools and ~450 tokens overhead** ([measured](examples/benchmark.py)).
+`morph()` registers a server's tools directly via FastMCP's live API — no wrapper, no indirection, no config edit. `shed()` removes them cleanly. The whole session costs **7 tools and ~650 tokens overhead** ([measured](examples/benchmark.py)).
 
 Need only specific tools? Lean morph keeps overhead surgical:
 ```
@@ -41,7 +41,7 @@ morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file
 
 An agent that loads all tools upfront burns tokens and flexibility. An agent that morphs on demand stays lean and adaptable:
 
-- `morph()` switches the entire capability set in one call — ~450 tokens, no restart
+- `morph()` switches the entire capability set in one call — ~650 tokens, no restart
 - Acquire a tool for the current task, shed it, acquire the next
 - Chain across multiple servers in one session without touching config
 - `morph(server_id, tools=[...])` for surgical selection — only the tools actually needed
@@ -70,8 +70,8 @@ No separate web UI. No isolated test environment. Test how your server actually 
 | | `chameleon-mcp` | `chameleon-forge` |
 |---|---|---|
 | **Purpose** | Adaptive agents, everyday morphing | MCP evaluation, benchmarking, crafting |
-| **Tools** | 6 (morph, shed, search, inspect, key, status) | All 17 |
-| **Token overhead** | ~450 tokens | ~1,700 tokens |
+| **Tools** | 7 (morph, shed, search, inspect, call, key, status) | All 17 |
+| **Token overhead** | ~650 tokens | ~1,700 tokens |
 | **Use when** | Agents morphing per task, minimal token budget | Discovering, testing, benchmarking, prototyping |
 
 > Token numbers are measured from actual registered schemas — see [examples/benchmark.py](examples/benchmark.py).
@@ -218,10 +218,15 @@ Use it to:
 
 ```
 inspect("mcp-server-brave-search")
-# → shows: brave_web_search(query, count, offset) — ~99 tokens
-# → shows: CREDENTIALS REQUIRED: BRAVE_API_KEY
-key("BRAVE_API_KEY", "your-key")
-morph("mcp-server-brave-search")   # now you know exactly what you're getting
+# → CREDENTIALS
+# →   ✗ missing  BRAVE_API_KEY — Brave Search API key
+# →   Add to .env:  BRAVE_API_KEY=your-value
+# → Token cost: ~99 tokens (measured)
+
+# Add the key to .env — picked up immediately, no restart needed
+# Then morph and use in the same session:
+morph("mcp-server-brave-search")
+call("brave_web_search", arguments={"query": "MCP protocol 2025"})
 ```
 
 ---
@@ -253,8 +258,9 @@ Arguments are passed directly to `asyncio.create_subprocess_exec` (never a shell
 `morph()` probes tool descriptions for unreferenced environment variable patterns. If a tool mentions `BRAVE_API_KEY` and that variable isn't set, you get a warning immediately — before you call anything:
 
 ```
-⚠️  Credentials may be required before calling tools:
-  key("BRAVE_API_KEY", "your-value")
+⚠️  Credentials may be required — add to .env:
+  BRAVE_API_KEY=your-value
+  Or: key("BRAVE_API_KEY", "your-value")
 ```
 
 ### Process isolation and sandboxing
@@ -315,24 +321,33 @@ Arguments are passed directly to `asyncio.create_subprocess_exec` (never a shell
 
 Get a free key at [smithery.ai/account/api-keys](https://smithery.ai/account/api-keys). Without it, Chameleon is fully functional via npm, PyPI, official registries, and GitHub.
 
-**Per-session API keys** — use `key()` instead of pre-configuring everything:
+**Frictionless credentials** — Chameleon re-reads `.env` on every `inspect()`, `morph()`, and `call()`. Add a key mid-session and it takes effect immediately — no restart:
 
 ```
-key("BRAVE_API_KEY", "your-key")   # saved to .env, auto-loaded next session
+# .env (CWD, ~/.env, or ~/.chameleon/.env — all checked, CWD wins)
+BRAVE_API_KEY=your-key
+GITHUB_TOKEN=ghp_...
+```
+
+Or use `key()` to write to `.env` and activate in one step:
+
+```
+key("BRAVE_API_KEY", "your-key")   # writes to .env, active immediately
 ```
 
 ---
 
 ## All Tools
 
-### `chameleon-mcp` — lean profile (6 tools, ~450 token overhead)
+### `chameleon-mcp` — lean profile (7 tools, ~650 token overhead)
 
 | Tool | Description |
 |---|---|
 | `morph(server_id, tools)` | Inject a server's tools live. `tools=[...]` for lean morph. |
 | `shed(release)` | Remove morphed tools. `release=True` kills the process immediately. |
 | `search(query, registry)` | Search MCP servers across registries. |
-| `inspect(server_id)` | Show server tools, schemas, and required credentials. |
+| `inspect(server_id)` | Show tools, schemas, and live credential status (✓/✗ per key). |
+| `call(tool_name, server_id, args)` | Call a tool. `server_id` optional when morphed — current form used. |
 | `key(env_var, value)` | Save an API key to `.env` and load it immediately. |
 | `status()` | Show current form, active connections (PID + RAM), token stats. |
 
@@ -342,7 +357,7 @@ Everything above, plus:
 
 | Tool | Description |
 |---|---|
-| `call(server_id, tool, args)` | One-shot tool call — no morph needed. |
+| `call(tool_name, server_id, args)` | Already in lean profile — listed here for completeness. |
 | `run(package, tool, args)` | Run from npm/pip directly. `uvx:pkg-name` for Python. |
 | `auto(task, tool, args)` | Search → pick best server → call in one step. |
 | `fetch(url, intent)` | Fetch a URL, return compressed text (~17x smaller than raw HTML). |
@@ -397,13 +412,26 @@ my_tool(query="test")   # call it natively inside Claude
 shed()
 ```
 
+### Same-session usage with call()
+
+After `morph()`, use `call()` immediately — no restart, no server_id needed:
+
+```
+morph("@modelcontextprotocol/server-filesystem")
+# → "In this session: call('tool_name', arguments={...})"
+
+call("list_directory", arguments={"path": "/Users/me/project"})
+call("read_file", arguments={"path": "/Users/me/project/README.md"})
+shed()
+```
+
 ### Search, morph, use, shed
 
 ```
 search("web search")
 morph("mcp-server-brave-search")
-key("BRAVE_API_KEY", "your-key")
-brave_web_search(query="MCP protocol 2025")
+key("BRAVE_API_KEY", "your-key")   # picked up immediately
+call("brave_web_search", arguments={"query": "MCP protocol 2025"})
 shed()
 ```
 
