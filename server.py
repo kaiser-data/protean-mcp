@@ -124,7 +124,7 @@ from chameleon_mcp.utils import (  # noqa: E402, F401
 # ── Tool profile selection ────────────────────────────────────────────────────
 # All tools registered above via @mcp.tool(). Prune to the requested profile.
 
-_LEAN_TOOLS = {"morph", "shed", "search", "inspect", "key", "status"}
+_LEAN_TOOLS = {"morph", "shed", "search", "inspect", "key", "status", "call"}
 _CHAMELEON_TOOLS_ENV = os.getenv("CHAMELEON_TOOLS", "")
 
 if _CHAMELEON_TOOLS_ENV.lower() == "all":
