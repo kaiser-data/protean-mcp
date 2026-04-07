@@ -272,6 +272,45 @@ Arguments are passed directly to `asyncio.create_subprocess_exec` (never a shell
 
 ---
 
+## What You Can Access
+
+One `chameleon-mcp` entry unlocks any of these on demand — no config changes, no restart:
+
+| Category | Servers | Key needed | Lean tokens |
+|---|---|---|---|
+| **Web search** | Brave Search, Exa, Linkup, Parallel | Free API keys | ~150–993 |
+| **Web scraping** | Firecrawl, ScrapeGraph AI | Free tiers | ~400 (lean) |
+| **Code & repos** | GitHub (official, 26 tools) | Free GitHub token | ~500 (lean) |
+| **Productivity** | Notion, Linear, Slack | Free workspace keys | ~400 (lean) |
+| **Google** | Maps, Calendar, Gmail, Drive | Free GCP key / OAuth | varies |
+| **Memory** | Mem0, knowledge graphs | Free tiers | ~300 |
+| **No key required** | Filesystem, Git, weather, Yahoo Finance | — | ~300–1,000 |
+
+The same pattern works for all of them:
+```
+morph("brave")                                    # web search in 2 tools
+call("brave_web_search", arguments={"query": "…"})
+
+morph("firecrawl-mcp", tools=["scrape","search"]) # scraping, lean (2 of 9 tools)
+call("scrape", arguments={"url": "https://…"})
+
+morph("@modelcontextprotocol/server-github", tools=["create_issue","search_repositories"])
+call("create_issue", arguments={"owner": "…", "repo": "…", "title": "…"})
+```
+
+**Token cost scales with what you load**, not what exists. A 26-tool GitHub server costs ~500 tokens if you only morph 3 tools. See [.env.example](.env.example) for the full key catalog with lean morph hints.
+
+### Security note on `.env`
+
+Chameleon re-reads `.env` on every call — which means adding a key instantly activates it. That convenience comes with a responsibility: **`.env` is the single place all your API keys live**. A few practices worth following:
+
+- Add `.env` to `.gitignore` — never commit real keys
+- Use project-level `.env` for project-specific keys; `~/.chameleon/.env` for personal global keys
+- Prefer minimal OAuth scopes and fine-grained tokens (e.g. GitHub fine-grained tokens with per-repo permissions)
+- Rotate keys that get exposed; Chameleon picks up the new value immediately without restart
+
+---
+
 ## Why Not Just X?
 
 **"Can't I just add more servers to `mcp.json`?"** — Every configured server starts at launch and exposes all tools constantly. You can't add or remove mid-session without a restart. With 5+ servers you're burning thousands of tokens on every request for tools rarely needed. Chameleon keeps the tool list minimal — morph in what you need, shed it when done.
