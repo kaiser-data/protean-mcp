@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chameleon-mcp"
-version = "0.6.1"
+version = "0.6.2"
 description = "The shape-shifting MCP hub — morph() into any server at runtime. 3,000+ servers. No config. No restart."
 readme = "README.md"
 license = { text = "MIT" }
