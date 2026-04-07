@@ -36,6 +36,8 @@ from chameleon_mcp.morph import (  # noqa: E402, F401
     _fetch_tools_list,
     _json_type_to_py,
     _make_proxy,
+    _register_proxy_prompts,
+    _register_proxy_resources,
     _register_proxy_tools,
 )
 from chameleon_mcp.official_registry import OfficialMCPRegistry  # noqa: E402, F401
@@ -104,6 +106,7 @@ from chameleon_mcp.transport import (  # noqa: E402, F401
     _PoolEntry,
     _process_pool,
     _read_stdio_response,
+    _validate_install_cmd,
 )
 from chameleon_mcp.utils import (  # noqa: E402, F401
     _clean_response,

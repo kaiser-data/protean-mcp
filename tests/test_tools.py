@@ -536,3 +536,123 @@ class TestLeanMorph:
 
         assert "read_file" in session["morphed_tools"]
         assert "write_file" in session["morphed_tools"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: proactive credential warning in morph()
+# ---------------------------------------------------------------------------
+
+class TestMorphCredentialWarning:
+    """morph() should warn about missing env vars probed from tool schemas."""
+
+    def _make_srv(self, source="npm"):
+        from server import ServerInfo
+        return ServerInfo(
+            id="org/cred-server", name="cred-server", description="",
+            source=source, transport="stdio", url="",
+            install_cmd=["npx", "-y", "cred-server"],
+            credentials={}, tools=[], token_cost=0,
+        )
+
+    async def test_warns_on_missing_credentials(self):
+        """morph() output includes key() hint when a tool schema references an unset env var."""
+        import os
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from server import _registry, morph, session
+
+        # Ensure the env var is NOT set
+        env_var = "TEST_CRED_SERVER_API_KEY"
+        os.environ.pop(env_var, None)
+
+        srv = self._make_srv()
+        tools_with_cred = [{
+            "name": "do_thing",
+            "description": f"Requires {env_var}",
+            "inputSchema": {"properties": {}, "required": []},
+        }]
+
+        ctx = MagicMock()
+        ctx.session = MagicMock()
+        ctx.session.send_tool_list_changed = AsyncMock()
+        ctx.session.send_resource_list_changed = AsyncMock()
+        ctx.session.send_prompt_list_changed = AsyncMock()
+
+        with patch.object(_registry, "get_server", AsyncMock(return_value=srv)), \
+             patch("chameleon_mcp.tools.PersistentStdioTransport") as MockT:
+            mock_t = MagicMock()
+            mock_t.list_tools = AsyncMock(return_value=tools_with_cred)
+            mock_t.list_resources = AsyncMock(return_value=[])
+            mock_t.list_prompts = AsyncMock(return_value=[])
+            MockT.return_value = mock_t
+
+            result = await morph("org/cred-server", ctx)
+
+        assert env_var in result
+        assert 'key("' in result
+
+    async def test_no_warning_when_credentials_set(self):
+        """No credential warning when the referenced env var is already set."""
+        import os
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from server import _registry, morph
+
+        env_var = "TEST_CRED_ALREADY_SET_KEY"
+        os.environ[env_var] = "sk-test-value"
+
+        try:
+            srv = self._make_srv()
+            tools_with_cred = [{
+                "name": "do_thing",
+                "description": f"Requires {env_var}",
+                "inputSchema": {"properties": {}, "required": []},
+            }]
+
+            ctx = MagicMock()
+            ctx.session = MagicMock()
+            ctx.session.send_tool_list_changed = AsyncMock()
+            ctx.session.send_resource_list_changed = AsyncMock()
+            ctx.session.send_prompt_list_changed = AsyncMock()
+
+            with patch.object(_registry, "get_server", AsyncMock(return_value=srv)), \
+                 patch("chameleon_mcp.tools.PersistentStdioTransport") as MockT:
+                mock_t = MagicMock()
+                mock_t.list_tools = AsyncMock(return_value=tools_with_cred)
+                mock_t.list_resources = AsyncMock(return_value=[])
+                mock_t.list_prompts = AsyncMock(return_value=[])
+                MockT.return_value = mock_t
+
+                result = await morph("org/cred-server", ctx)
+
+            # No warning since the env var is set
+            assert "Credentials may be required" not in result
+        finally:
+            os.environ.pop(env_var, None)
+
+    async def test_morph_succeeds_when_credential_probe_fails(self):
+        """morph() succeeds even if _probe_requirements raises unexpectedly."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from server import _registry, morph
+
+        srv = self._make_srv()
+
+        ctx = MagicMock()
+        ctx.session = MagicMock()
+        ctx.session.send_tool_list_changed = AsyncMock()
+        ctx.session.send_resource_list_changed = AsyncMock()
+        ctx.session.send_prompt_list_changed = AsyncMock()
+
+        with patch.object(_registry, "get_server", AsyncMock(return_value=srv)), \
+             patch("chameleon_mcp.tools._probe_requirements", side_effect=RuntimeError("probe failed")), \
+             patch("chameleon_mcp.tools.PersistentStdioTransport") as MockT:
+            mock_t = MagicMock()
+            mock_t.list_tools = AsyncMock(return_value=[
+                {"name": "simple_tool", "description": "", "inputSchema": {}}
+            ])
+            mock_t.list_resources = AsyncMock(return_value=[])
+            mock_t.list_prompts = AsyncMock(return_value=[])
+            MockT.return_value = mock_t
+
+            result = await morph("org/cred-server", ctx)
+
+        # morph must succeed even when probe fails
+        assert "Morphed" in result or "simple_tool" in result

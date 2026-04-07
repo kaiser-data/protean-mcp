@@ -33,3 +33,10 @@ GLAMA_REGISTRY_URL    = "https://glama.ai/api/mcp/v1/servers"
 GLAMA_REGISTRY_TTL    = 3600   # 1 hour
 
 PROVIDER_PARAM_SUFFIXES = ("provider", "engine", "backend", "service", "mode")
+
+TIMEOUT_PROMPT_LIST  = 5.0
+
+# Source trust tiers — used to gate warnings in morph / call / connect output
+TRUST_HIGH   = {"official"}
+TRUST_MEDIUM = {"mcpregistry", "glama", "smithery"}
+TRUST_LOW    = {"npm", "pypi", "github"}

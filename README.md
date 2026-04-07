@@ -25,7 +25,7 @@ puppeteer_navigate(url="https://example.com")     # call them natively
 shed()                                            # clean exit
 ```
 
-`morph()` registers a server's tools directly via FastMCP's live API — no wrapper, no indirection, no config edit. `shed()` removes them cleanly. The whole session costs **6 tools and ~240 tokens overhead**.
+`morph()` registers a server's tools directly via FastMCP's live API — no wrapper, no indirection, no config edit. `shed()` removes them cleanly. The whole session costs **6 tools and ~450 tokens overhead** ([measured](examples/benchmark.py)).
 
 Need only specific tools? Lean morph keeps overhead surgical:
 ```
@@ -41,12 +41,12 @@ morph("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file
 
 An agent that loads all tools upfront burns tokens and flexibility. An agent that morphs on demand stays lean and adaptable:
 
-- `morph()` switches the entire capability set in one call — ~240 tokens, no restart
+- `morph()` switches the entire capability set in one call — ~450 tokens, no restart
 - Acquire a tool for the current task, shed it, acquire the next
 - Chain across multiple servers in one session without touching config
 - `morph(server_id, tools=[...])` for surgical selection — only the tools actually needed
 
-This is the first MCP hub designed around the token budget of a real agent loop.
+Chameleon is designed around the token budget of a real agent loop.
 
 ### MCP developers
 
@@ -71,8 +71,10 @@ No separate web UI. No isolated test environment. Test how your server actually 
 |---|---|---|
 | **Purpose** | Adaptive agents, everyday morphing | MCP evaluation, benchmarking, crafting |
 | **Tools** | 6 (morph, shed, search, inspect, key, status) | All 17 |
-| **Token overhead** | ~240 tokens | ~825 tokens |
+| **Token overhead** | ~450 tokens | ~1,700 tokens |
 | **Use when** | Agents morphing per task, minimal token budget | Discovering, testing, benchmarking, prototyping |
+
+> Token numbers are measured from actual registered schemas — see [examples/benchmark.py](examples/benchmark.py).
 
 Both modes from the same package:
 
@@ -152,19 +154,48 @@ Default `search()` fans out across all no-auth registries automatically. Add a `
 
 ## How It Works
 
-Traditional MCP hubs route calls through a wrapper: `hub.call("exa", "web_search", args)`. Chameleon goes further — it **becomes** the server:
+### The proxy model
+
+Chameleon is a **dynamic MCP proxy**. It sits between your AI client and any number of other MCP servers, connecting to them on demand:
 
 ```
-Before morph():
-  Claude → Chameleon (search, inspect, morph, shed, ...)
-
-After morph("@modelcontextprotocol/server-filesystem"):
-  Claude → Chameleon (..., read_file, write_file, list_directory, ...)
+Your AI client
+    │
+    ▼
+Chameleon MCP          ← the one entry in your config
+    │
+    ├── (on morph) ──► filesystem server   (spawned subprocess)
+    ├── (on morph) ──► brave-search server (spawned subprocess)
+    └── (on morph) ──► remote HTTP server  (HTTP+SSE connection)
 ```
 
-The morphed tools appear natively — no extra prompt overhead, no indirection.
+**Nothing is copied.** When you call a morphed tool, Chameleon forwards the call to the original server via JSON-RPC and returns the result. The server's logic always runs on the server — Chameleon only relays the schema and the call.
 
-**Transport is automatic:**
+### What morph() does, step by step
+
+1. **Connects** to the target server via the right transport (stdio subprocess, HTTP, WebSocket)
+2. **Handshakes** — sends MCP `initialize` / `notifications/initialized`
+3. **Fetches** `tools/list`, `resources/list`, `prompts/list` from the server
+4. **Registers** each tool as a native FastMCP tool — a proxy closure with the exact signature from the schema
+5. **Notifies** the AI client (`notifications/tools/list_changed`) so the new tools appear immediately
+
+The AI sees `read_file`, `write_file`, `list_directory` as if they were always there. There's no wrapper or `call_tool("filesystem", ...)` indirection — the tools are first-class.
+
+`shed()` reverses all of it: deregisters the proxy closures, clears resources and prompts, notifies the client.
+
+### Resources and prompts
+
+`morph()` proxies all three MCP primitives, not just tools:
+
+| Primitive | What gets proxied |
+|---|---|
+| **Tools** | Every tool from `tools/list`, registered with its exact parameter schema |
+| **Resources** | Static resources from `resources/list` — readable via the MCP resources API |
+| **Prompts** | Every prompt from `prompts/list`, with its argument signature |
+
+Template URIs (e.g. `file:///{path}`) are skipped — they require parameter binding that adds complexity with little practical gain. Everything else is proxied.
+
+### Transport is automatic
 
 | Server source | How it runs |
 |---|---|
@@ -174,6 +205,64 @@ The morphed tools appear natively — no extra prompt overhead, no indirection.
 | Docker image | `docker run --rm -i --memory 512m <image>` |
 | Smithery remote | HTTP+SSE via `server.smithery.ai` (requires API key) |
 | WebSocket server | `ws://` / `wss://` |
+
+### Why inspect() before morph()
+
+`inspect()` connects to the server and fetches its schemas — but does **not** register anything. Zero tools added to context, zero tokens consumed by the AI.
+
+Use it to:
+- See exact parameter names and types before committing
+- Check credential requirements upfront (avoid a cryptic error mid-task)
+- Get the measured token cost of the morph so you can budget
+- Verify the server actually starts and responds before a live session
+
+```
+inspect("mcp-server-brave-search")
+# → shows: brave_web_search(query, count, offset) — ~99 tokens
+# → shows: CREDENTIALS REQUIRED: BRAVE_API_KEY
+key("BRAVE_API_KEY", "your-key")
+morph("mcp-server-brave-search")   # now you know exactly what you're getting
+```
+
+---
+
+## Security
+
+Chameleon introduces a trust model for servers you haven't personally audited.
+
+### Trust tiers
+
+Every `morph()`, `call()`, and `connect()` result shows where the server comes from:
+
+| Tier | Sources | Indicator |
+|---|---|---|
+| High | `official` (modelcontextprotocol/servers) | `✓ Source: official` |
+| Medium | `mcpregistry`, `glama`, `smithery` | `✓ Source: smithery` |
+| Community | `npm`, `pypi`, `github` | `⚠️ Source: npm (community — not verified)` |
+
+### Install command validation
+
+Before spawning any subprocess, Chameleon validates the executable name:
+- Blocks shell metacharacters (`&`, `;`, `|`, `` ` ``, `$`) — prevents injection via a crafted server ID
+- Blocks path traversal (`../`) — prevents escaping to arbitrary binaries
+
+Arguments are passed directly to `asyncio.create_subprocess_exec` (never a shell), so they are not subject to shell interpretation.
+
+### Credential warnings
+
+`morph()` probes tool descriptions for unreferenced environment variable patterns. If a tool mentions `BRAVE_API_KEY` and that variable isn't set, you get a warning immediately — before you call anything:
+
+```
+⚠️  Credentials may be required before calling tools:
+  key("BRAVE_API_KEY", "your-value")
+```
+
+### Process isolation and sandboxing
+
+- stdio servers run as separate OS processes — no shared memory with Chameleon
+- Docker servers run with `--rm -i --memory 512m --label chameleon-mcp=1`
+- `fetch()` blocks private IPs, loopback, and non-HTTPS URLs (SSRF protection)
+- The process pool has a hard cap of 10 concurrent processes and evicts idle ones after 1 hour
 
 ---
 
@@ -236,7 +325,7 @@ key("BRAVE_API_KEY", "your-key")   # saved to .env, auto-loaded next session
 
 ## All Tools
 
-### `chameleon-mcp` — lean profile (6 tools, ~240 token overhead)
+### `chameleon-mcp` — lean profile (6 tools, ~450 token overhead)
 
 | Tool | Description |
 |---|---|
@@ -247,7 +336,7 @@ key("BRAVE_API_KEY", "your-key")   # saved to .env, auto-loaded next session
 | `key(env_var, value)` | Save an API key to `.env` and load it immediately. |
 | `status()` | Show current form, active connections (PID + RAM), token stats. |
 
-### `chameleon-forge` — full suite (all 17 tools, ~825 token overhead)
+### `chameleon-forge` — full suite (all 17 tools, ~1,700 token overhead)
 
 Everything above, plus:
 

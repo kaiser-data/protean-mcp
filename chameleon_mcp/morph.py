@@ -1,6 +1,10 @@
 import asyncio
 import inspect as _inspect
+import re
 from collections.abc import Callable
+
+from mcp.server.fastmcp.prompts.base import Prompt as _Prompt
+from mcp.server.fastmcp.resources.types import FunctionResource as _FunctionResource
 
 from chameleon_mcp.app import mcp
 from chameleon_mcp.constants import (
@@ -12,6 +16,9 @@ from chameleon_mcp.constants import (
 )
 from chameleon_mcp.session import session
 from chameleon_mcp.transport import BaseTransport, StdioTransport
+
+# Matches URI template parameters like {path} or {file_name}
+_URI_TEMPLATE_RE = re.compile(r'\{[a-zA-Z_][a-zA-Z0-9_]*\}')
 
 _frame = StdioTransport._frame
 
@@ -115,7 +122,10 @@ def _make_proxy(
 
 
 def _do_shed() -> list[str]:
-    """Remove all morphed proxy tools. Returns list of removed tool names."""
+    """Remove all morphed proxy tools, resources, and prompts.
+
+    Returns list of removed tool names (resources/prompts cleaned up silently).
+    """
     removed = []
     for tname in session["morphed_tools"]:
         try:
@@ -124,8 +134,110 @@ def _do_shed() -> list[str]:
         except Exception:
             pass
     session["morphed_tools"] = []
+
+    # Remove proxied resources via _resource_manager internal dict
+    _rm = getattr(mcp, "_resource_manager", None)
+    for uri in session.get("morphed_resources", []):
+        if _rm is not None:
+            _rm._resources.pop(uri, None)
+    session["morphed_resources"] = []
+
+    # Remove proxied prompts via _prompt_manager internal dict
+    _pm = getattr(mcp, "_prompt_manager", None)
+    for pname in session.get("morphed_prompts", []):
+        if _pm is not None:
+            _pm._prompts.pop(pname, None)
+    session["morphed_prompts"] = []
+
     session["current_form"] = None
     return removed
+
+
+def _register_proxy_resources(transport: "BaseTransport", resources: list[dict]) -> list[str]:
+    """Proxy static (non-template) resources from a transport.
+
+    Returns normalized URI strings that were successfully registered.
+    Template URIs (containing {param} placeholders) are skipped — they require
+    parameter binding that is out of scope for basic proxying.
+    """
+    registered = []
+    for res in resources:
+        uri = res.get("uri", "")
+        if not uri or _URI_TEMPLATE_RE.search(uri):
+            continue
+        name = res.get("name") or uri
+        description = (res.get("description") or "")[:120]
+        mime_type = res.get("mimeType") or "text/plain"
+        _uri, _t = uri, transport
+
+        async def _proxy(_u=_uri, _tr=_t) -> str:  # no type annotations — validate_call would reject BaseTransport
+            try:
+                return await _tr.read_resource(_u)
+            except Exception as e:
+                return f"[Resource unavailable: {e}]"
+
+        _proxy.__name__ = name  # type: ignore[attr-defined]
+        try:
+            r = _FunctionResource.from_function(
+                fn=_proxy, uri=_uri, name=name, description=description, mime_type=mime_type,
+            )
+            mcp.add_resource(r)
+            registered.append(str(r.uri))
+        except Exception:
+            pass
+    return registered
+
+
+def _register_proxy_prompts(transport: "BaseTransport", prompts: list[dict]) -> list[str]:
+    """Proxy prompts from a transport.
+
+    Returns list of registered prompt names.
+    Builds a proper __signature__ so FastMCP sees the correct argument list.
+    """
+    registered = []
+    for prompt_schema in prompts:
+        name = prompt_schema.get("name", "")
+        if not name:
+            continue
+        description = (prompt_schema.get("description") or "")[:120]
+        args_schema = prompt_schema.get("arguments", [])
+        _name, _t = name, transport
+
+        async def _proxy(**kwargs) -> str:
+            messages = await _t.get_prompt(_name, kwargs)
+            return "\n---\n".join(
+                f"[{m.get('role', 'user')}]: {m.get('content', {}).get('text', '')}"
+                for m in messages
+                if isinstance(m, dict)
+            )
+
+        # Build named parameter signature so FastMCP / Pydantic see correct arguments.
+        # MUST set both __signature__ (for inspect) and __annotations__ (for Pydantic's
+        # get_type_hints()) — Prompt.from_function calls validate_call which reads both.
+        params = []
+        annotations: dict[str, type] = {"return": str}
+        for arg in args_schema:
+            arg_name = arg.get("name", "")
+            if not arg_name:
+                continue
+            default = _inspect.Parameter.empty if arg.get("required") else ""
+            params.append(_inspect.Parameter(
+                arg_name, _inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=default, annotation=str,
+            ))
+            annotations[arg_name] = str
+        _proxy.__signature__ = _inspect.Signature(params)  # type: ignore[attr-defined]
+        _proxy.__annotations__ = annotations  # type: ignore[attr-defined]
+        _proxy.__name__ = name  # type: ignore[attr-defined]
+        _proxy.__doc__ = description
+
+        try:
+            p = _Prompt.from_function(fn=_proxy, name=name, description=description)
+            mcp.add_prompt(p)
+            registered.append(name)
+        except Exception:
+            pass
+    return registered
 
 
 def _register_proxy_tools(

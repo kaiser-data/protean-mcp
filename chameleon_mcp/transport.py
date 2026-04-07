@@ -3,6 +3,7 @@ import base64
 import contextlib
 import json
 import os
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from chameleon_mcp.constants import (
     POOL_MAX_IDLE_SECONDS,
     POOL_MAX_PROCESSES,
     TIMEOUT_HTTP_TOOL,
+    TIMEOUT_PROMPT_LIST,
     TIMEOUT_RESOURCE_LIST,
     TIMEOUT_STDIO_INIT,
     TIMEOUT_STDIO_TOOL,
@@ -27,6 +29,31 @@ from chameleon_mcp.utils import (
     _get_http_client,
     _truncate,
 )
+
+
+# ---------------------------------------------------------------------------
+# Install command validation
+# ---------------------------------------------------------------------------
+
+_SHELL_METACHAR_RE = re.compile(r'[&;|$`\n]')
+_PATH_TRAVERSAL_RE = re.compile(r'\.\.[/\\]')
+
+
+def _validate_install_cmd(cmd: list[str]) -> None:
+    """Validate argv[0] of an install command for shell injection and path traversal.
+
+    Only checks the executable name (argv[0]) — arguments are passed directly to
+    create_subprocess_exec and are not subject to shell interpretation.
+
+    Raises ValueError if the command looks dangerous.
+    """
+    if not cmd:
+        raise ValueError("Empty install command")
+    argv0 = cmd[0]
+    if _SHELL_METACHAR_RE.search(argv0):
+        raise ValueError(f"Shell metacharacter in command: {argv0!r}")
+    if _PATH_TRAVERSAL_RE.search(argv0):
+        raise ValueError(f"Path traversal in command: {argv0!r}")
 
 
 class BaseTransport(ABC):
@@ -252,6 +279,10 @@ class StdioTransport(BaseTransport):
 
     async def execute(self, tool: str, args: dict, config: dict) -> str:
         try:
+            _validate_install_cmd(self.install_cmd)
+        except ValueError as e:
+            return str(e)
+        try:
             proc = await asyncio.create_subprocess_exec(
                 *self.install_cmd,
                 stdin=asyncio.subprocess.PIPE,
@@ -342,6 +373,10 @@ class PersistentStdioTransport(BaseTransport):
 
     async def _start_process(self) -> _PoolEntry:
         """Spawn subprocess, run MCP handshake, store in pool. Returns entry."""
+        try:
+            _validate_install_cmd(self.install_cmd)
+        except ValueError as e:
+            raise RuntimeError(str(e)) from e
         try:
             proc = await asyncio.create_subprocess_exec(
                 *self.install_cmd,
@@ -449,6 +484,41 @@ class PersistentStdioTransport(BaseTransport):
             contents = resp.get("result", {}).get("contents", [])
             # Resource content items use mimeType, not type — extract any text field present
             return "\n".join(c["text"] for c in contents if "text" in c)
+
+    async def list_prompts(self) -> list[dict]:
+        """Ask live process for its prompt list via prompts/list."""
+        entry = await self._get_or_start()
+        async with entry.lock:
+            msg_id = entry.next_id
+            entry.next_id += 1
+            entry.proc.stdin.write(self._frame(
+                {"jsonrpc": "2.0", "id": msg_id, "method": "prompts/list", "params": {}}
+            ))
+            await entry.proc.stdin.drain()
+            resp = await StdioTransport._read_response(
+                entry.proc.stdout, expected_id=msg_id, timeout=TIMEOUT_PROMPT_LIST
+            )
+            if not resp or "error" in resp:
+                return []
+            return resp.get("result", {}).get("prompts", [])
+
+    async def get_prompt(self, name: str, arguments: dict) -> list[dict]:
+        """Fetch a rendered prompt by name via prompts/get."""
+        entry = await self._get_or_start()
+        async with entry.lock:
+            msg_id = entry.next_id
+            entry.next_id += 1
+            entry.proc.stdin.write(self._frame(
+                {"jsonrpc": "2.0", "id": msg_id, "method": "prompts/get",
+                 "params": {"name": name, "arguments": arguments}}
+            ))
+            await entry.proc.stdin.drain()
+            resp = await StdioTransport._read_response(
+                entry.proc.stdout, expected_id=msg_id, timeout=TIMEOUT_PROMPT_LIST
+            )
+            if not resp or "error" in resp:
+                return []
+            return resp.get("result", {}).get("messages", [])
 
     async def execute(self, tool: str, args: dict, config: dict) -> str:
         try:

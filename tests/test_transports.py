@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import DockerTransport, HTTPSSETransport, StdioTransport, WebSocketTransport
+from server import DockerTransport, HTTPSSETransport, StdioTransport, WebSocketTransport, _validate_install_cmd
 
 # ---------------------------------------------------------------------------
 # StdioTransport tests
@@ -230,3 +230,56 @@ class TestDockerTransport:
             result = await t.execute("my_tool", {"x": 1}, {})
 
         assert "docker result" in result
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: _validate_install_cmd
+# ---------------------------------------------------------------------------
+
+class TestValidateInstallCmd:
+    """_validate_install_cmd raises ValueError for unsafe argv[0]; accepts safe commands."""
+
+    def test_accepts_valid_npx(self):
+        _validate_install_cmd(["npx", "-y", "@modelcontextprotocol/server-github"])
+
+    def test_accepts_valid_uvx(self):
+        _validate_install_cmd(["uvx", "my-mcp-server"])
+
+    def test_rejects_empty_command(self):
+        import pytest
+        with pytest.raises(ValueError, match="Empty"):
+            _validate_install_cmd([])
+
+    def test_rejects_shell_injection_semicolon(self):
+        import pytest
+        with pytest.raises(ValueError, match="Shell metacharacter"):
+            _validate_install_cmd(["npx; rm -rf /", "arg"])
+
+    def test_rejects_shell_injection_pipe(self):
+        import pytest
+        with pytest.raises(ValueError, match="Shell metacharacter"):
+            _validate_install_cmd(["npx|evil", "arg"])
+
+    def test_rejects_shell_injection_backtick(self):
+        import pytest
+        with pytest.raises(ValueError, match="Shell metacharacter"):
+            _validate_install_cmd(["`evil`"])
+
+    def test_rejects_path_traversal(self):
+        import pytest
+        with pytest.raises(ValueError, match="Path traversal"):
+            _validate_install_cmd(["../../bin/evil"])
+
+    async def test_stdio_transport_returns_error_on_invalid_cmd(self):
+        """StdioTransport.execute returns an error string instead of spawning the process."""
+        transport = StdioTransport(["npx; evil", "arg"])
+        result = await transport.execute("tool", {}, {})
+        assert "Shell metacharacter" in result
+
+    async def test_persistent_transport_raises_runtime_error(self):
+        """PersistentStdioTransport._start_process raises RuntimeError on invalid cmd."""
+        import pytest
+        from server import PersistentStdioTransport
+        transport = PersistentStdioTransport(["../../evil"])
+        with pytest.raises(RuntimeError, match="Path traversal"):
+            await transport._start_process()

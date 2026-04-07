@@ -18,10 +18,13 @@ from chameleon_mcp.constants import (
     MAX_RESPONSE_TOKENS,
     RESOURCE_PRIORITY_KEYWORDS,
     TIMEOUT_FETCH_URL,
+    TIMEOUT_PROMPT_LIST,
     TIMEOUT_RESOURCE_LIST,
     TIMEOUT_RESOURCE_READ,
     TIMEOUT_STDIO_INIT,
     TIMEOUT_STDIO_TOOL,
+    TRUST_HIGH,
+    TRUST_MEDIUM,
 )
 from chameleon_mcp.credentials import (
     _credentials_guide,
@@ -31,7 +34,13 @@ from chameleon_mcp.credentials import (
     _smithery_available,
     _to_env_var,
 )
-from chameleon_mcp.morph import _do_shed, _fetch_tools_list, _register_proxy_tools
+from chameleon_mcp.morph import (
+    _do_shed,
+    _fetch_tools_list,
+    _register_proxy_prompts,
+    _register_proxy_resources,
+    _register_proxy_tools,
+)
 from chameleon_mcp.probe import _doc_uri_priority, _format_setup_guide, _probe_requirements
 from chameleon_mcp.registry import (
     REGISTRY_BASE,
@@ -193,11 +202,12 @@ async def inspect(server_id: str) -> str:
             params = list((t.get("inputSchema") or {}).get("properties", {}).keys())
             pstr = f"({', '.join(params)})" if params else ""
             lines.append(f"  {tname}{pstr} — {tdesc}")
-        token_cost = srv.token_cost or len(json.dumps(tools)) // 4
-        lines.append(f"\nToken cost: ~{token_cost} tokens")
+        # Prefer measured cost from actual schemas over registry estimate
+        token_cost = _estimate_tokens(tools)
+        lines.append(f"\nToken cost: ~{token_cost} tokens (measured)")
     else:
         lines.append("TOOLS: not listed in registry")
-        token_cost = srv.token_cost
+        token_cost = srv.token_cost or 0
 
     session["explored"][srv.id] = {
         "name": srv.name, "desc": srv.description,
@@ -234,6 +244,11 @@ async def call(
         "calls": prior["calls"] + 1,
         "status": "active",
     }
+
+    if srv is not None:
+        source = srv.source
+        if source not in TRUST_HIGH | TRUST_MEDIUM:
+            result = result + f"\n[source: {source}]"
     return result
 
 
@@ -554,20 +569,73 @@ async def morph(server_id: str, ctx: Context, tools: list[str] | None = None) ->
         if not registered:
             return f"No tools could be registered from '{server_id}'."
 
+        # Register resources + prompts (best-effort — pool transports support both)
+        morphed_resources: list[str] = []
+        morphed_prompts: list[str] = []
+        if hasattr(transport, "list_resources"):
+            try:
+                raw_res = await asyncio.wait_for(
+                    transport.list_resources(), timeout=TIMEOUT_RESOURCE_LIST
+                )
+                morphed_resources = _register_proxy_resources(transport, raw_res)
+            except Exception:
+                pass
+        if hasattr(transport, "list_prompts"):
+            try:
+                raw_prompts = await asyncio.wait_for(
+                    transport.list_prompts(), timeout=TIMEOUT_PROMPT_LIST
+                )
+                morphed_prompts = _register_proxy_prompts(transport, raw_prompts)
+            except Exception:
+                pass
+
         session["morphed_tools"] = registered
+        session["morphed_resources"] = morphed_resources
+        session["morphed_prompts"] = morphed_prompts
         session["current_form"] = server_id
         session["current_form_pool_key"] = json.dumps(cmd, sort_keys=True)
 
         with contextlib.suppress(Exception):
             await ctx.session.send_tool_list_changed()
+        if morphed_resources:
+            with contextlib.suppress(Exception):
+                await ctx.session.send_resource_list_changed()
+        if morphed_prompts:
+            with contextlib.suppress(Exception):
+                await ctx.session.send_prompt_list_changed()
+
+        # Credential warning (best-effort — probes tool schemas for unreferenced env vars)
+        missing_env: list[str] = []
+        try:
+            reqs = _probe_requirements(raw_tools, "")
+            missing_env = reqs.get("missing_env", [])
+        except Exception:
+            pass
 
         lean = f" (lean: {', '.join(tools)})" if tools else ""
+        extras = []
+        if morphed_resources:
+            extras.append(f"{len(morphed_resources)} resource(s)")
+        if morphed_prompts:
+            extras.append(f"{len(morphed_prompts)} prompt(s)")
+        extra_note = f" + {', '.join(extras)}" if extras else ""
+
         lines = [
-            f"Morphed into '{server_id}' (pool connection){lean} — {len(registered)} tool(s) registered:",
+            f"Morphed into '{server_id}' (pool connection){lean} — {len(registered)} tool(s){extra_note} registered:",
             *[f"  {t}" for t in registered],
-            "",
-            "Call them directly, or use shed() to return to base form.",
         ]
+        if morphed_resources:
+            shown = ", ".join(morphed_resources[:3]) + (" ..." if len(morphed_resources) > 3 else "")
+            lines.append(f"Resources ({len(morphed_resources)}): {shown}")
+        if morphed_prompts:
+            shown = ", ".join(morphed_prompts[:3]) + (" ..." if len(morphed_prompts) > 3 else "")
+            lines.append(f"Prompts ({len(morphed_prompts)}): {shown}")
+        lines += ["", "Call them directly, or use shed() to return to base form."]
+        lines.append("\n⚠️  Source: pool connection (local — verify command before use)")
+        if missing_env:
+            lines.append("\n⚠️  Credentials may be required before calling tools:")
+            for var in missing_env:
+                lines.append(f'  key("{var}", "your-value")')
         return "\n".join(lines)
 
     # 2. Drop previous form early so pool slot is freed before we potentially start a new one
@@ -606,33 +674,115 @@ async def morph(server_id: str, ctx: Context, tools: list[str] | None = None) ->
     if not registered:
         return f"No tools could be registered from '{server_id}'."
 
-    session["morphed_tools"] = registered
-    session["current_form"] = server_id
-    session["current_form_pool_key"] = json.dumps(cmd, sort_keys=True)
+    # 7. Register resources + prompts (best-effort — only stdio transports support these)
+    morphed_resources: list[str] = []
+    morphed_prompts: list[str] = []
+    if hasattr(transport, "list_resources"):
+        try:
+            raw_res = await asyncio.wait_for(
+                transport.list_resources(), timeout=TIMEOUT_RESOURCE_LIST
+            )
+            morphed_resources = _register_proxy_resources(transport, raw_res)
+        except Exception:
+            pass
+    if hasattr(transport, "list_prompts"):
+        try:
+            raw_prompts = await asyncio.wait_for(
+                transport.list_prompts(), timeout=TIMEOUT_PROMPT_LIST
+            )
+            morphed_prompts = _register_proxy_prompts(transport, raw_prompts)
+        except Exception:
+            pass
 
-    # 7. Notify client that tool list has changed
+    session["morphed_tools"] = registered
+    session["morphed_resources"] = morphed_resources
+    session["morphed_prompts"] = morphed_prompts
+    session["current_form"] = server_id
+    # cmd is only defined for stdio transport — HTTP transport has no process pool key
+    session["current_form_pool_key"] = json.dumps(cmd, sort_keys=True) if srv.transport == "stdio" else None
+
+    # 8. Notify client of all changed lists
     with contextlib.suppress(Exception):
         await ctx.session.send_tool_list_changed()
+    if morphed_resources:
+        with contextlib.suppress(Exception):
+            await ctx.session.send_resource_list_changed()
+    if morphed_prompts:
+        with contextlib.suppress(Exception):
+            await ctx.session.send_prompt_list_changed()
+
+    # 9. Trust / source note
+    source = srv.source if srv else "unknown"
+    if source in TRUST_HIGH | TRUST_MEDIUM:
+        trust_note = f"\n✓  Source: {source}"
+    else:
+        trust_note = f"\n⚠️  Source: {source} (community — not verified by official MCP registry)"
+
+    # 10. Credential warning (best-effort — probes tool schemas for unreferenced env vars)
+    missing_env: list[str] = []
+    try:
+        reqs = _probe_requirements(tool_schemas, "")
+        missing_env = reqs.get("missing_env", [])
+    except Exception:
+        pass
 
     lean = f" (lean: {', '.join(tools)})" if tools else ""
+    extras = []
+    if morphed_resources:
+        extras.append(f"{len(morphed_resources)} resource(s)")
+    if morphed_prompts:
+        extras.append(f"{len(morphed_prompts)} prompt(s)")
+    extra_note = f" + {', '.join(extras)}" if extras else ""
+
     lines = [
-        f"Morphed into '{server_id}'{lean} — {len(registered)} tool(s) registered:",
+        f"Morphed into '{server_id}'{lean} — {len(registered)} tool(s){extra_note} registered:",
         *[f"  {t}" for t in registered],
-        "",
-        "Call them directly, or use shed() to return to base form.",
     ]
+    if morphed_resources:
+        shown = ", ".join(morphed_resources[:3]) + (" ..." if len(morphed_resources) > 3 else "")
+        lines.append(f"Resources ({len(morphed_resources)}): {shown}")
+    if morphed_prompts:
+        shown = ", ".join(morphed_prompts[:3]) + (" ..." if len(morphed_prompts) > 3 else "")
+        lines.append(f"Prompts ({len(morphed_prompts)}): {shown}")
+    lines += ["", "Call them directly, or use shed() to return to base form."]
+    lines.append(trust_note)
+    if missing_env:
+        lines.append("\n⚠️  Credentials may be required before calling tools:")
+        for var in missing_env:
+            lines.append(f'  key("{var}", "your-value")')
     return "\n".join(lines)
 
 
 @mcp.tool()
 async def shed(ctx: Context, release: bool = False) -> str:
     """Remove morphed tools. release=True kills the process and frees RAM immediately."""
-    if not session["morphed_tools"]:
+    has_tools = bool(session["morphed_tools"])
+    has_resources = bool(session.get("morphed_resources"))
+    has_prompts = bool(session.get("morphed_prompts"))
+    if not has_tools and not has_resources and not has_prompts:
         return "Already in base form."
+
     form = session["current_form"]
+    # Snapshot counts before _do_shed() clears the lists
+    n_res = len(session.get("morphed_resources", []))
+    n_prompts = len(session.get("morphed_prompts", []))
     removed = _do_shed()
+
     with contextlib.suppress(Exception):
         await ctx.session.send_tool_list_changed()
+    if n_res:
+        with contextlib.suppress(Exception):
+            await ctx.session.send_resource_list_changed()
+    if n_prompts:
+        with contextlib.suppress(Exception):
+            await ctx.session.send_prompt_list_changed()
+
+    extras = []
+    if n_res:
+        extras.append(f"{n_res} resource(s)")
+    if n_prompts:
+        extras.append(f"{n_prompts} prompt(s)")
+    extra_note = f", {', '.join(extras)}" if extras else ""
 
     if release and form:
         # Use the exact pool key stored at morph() time — no fragile string matching needed
@@ -649,9 +799,9 @@ async def shed(ctx: Context, release: bool = False) -> str:
             _process_pool.pop(pool_key, None)
             killed.append(entry.name or entry.install_cmd[0])
         if killed:
-            return f"Shed '{form}'. Removed: {', '.join(removed)}. Released: {', '.join(killed)}"
+            return f"Shed '{form}'. Removed: {', '.join(removed)}{extra_note}. Released: {', '.join(killed)}"
 
-    return f"Shed '{form}'. Removed: {', '.join(removed)}"
+    return f"Shed '{form}'. Removed: {', '.join(removed)}{extra_note}"
 
 
 @mcp.tool()
@@ -792,6 +942,15 @@ async def connect(command: str, name: str = "", timeout: int = 60, inherit_stder
 
     tool_summary = f"Tools ({len(tool_names)}): {', '.join(tool_names)}" if tool_names else "Tools: none listed"
     setup_guide = _format_setup_guide(_probe_requirements(tools, resource_text), friendly, tools=tools)
+
+    # Trust / source note — resolve from registry if possible, otherwise flag as local
+    _conn_srv = await _registry.get_server(command) if not looks_like_cmd else None
+    conn_source = _conn_srv.source if _conn_srv else "local"
+    if conn_source in TRUST_HIGH | TRUST_MEDIUM:
+        trust_note = f"✓  Source: {conn_source}"
+    else:
+        trust_note = f"⚠️  Source: {conn_source} (verify command before connecting)"
+
     parts = [
         f"Connected: {friendly} (PID {entry.pid()})",
         tool_summary,
@@ -800,6 +959,7 @@ async def connect(command: str, name: str = "", timeout: int = 60, inherit_stder
     if setup_guide:
         parts.append(setup_guide)
         parts.append(f"\nCall setup('{friendly}') for step-by-step guidance.")
+    parts.append(trust_note)
     return "\n".join(parts)
 
 
@@ -1089,11 +1249,14 @@ async def status() -> str:
             lines.append(f"  {sid} ~{t:,} tokens")
         lines.append("")
 
-    # Token savings vs always-on: compare what context cost would be if all explored
-    # servers were loaded at startup vs what we actually used
-    always_on_cost = sum(info.get("token_cost", 500) for info in explored.values())
-    actual_used = stats["tokens_sent"] + stats["tokens_received"]
-    lazy_saved = max(0, always_on_cost - actual_used)
+    # Token savings vs always-on: sum measured schema costs for inspected servers
+    # that are NOT currently morphed (those would be loaded if always-on).
+    not_morphed = {
+        sid: info
+        for sid, info in explored.items()
+        if info.get("token_cost") and sid != current_form
+    }
+    lazy_saved = sum(info["token_cost"] for info in not_morphed.values())
 
     lines += [
         "PERFORMANCE STATS",
@@ -1107,7 +1270,11 @@ async def status() -> str:
         avg = stats["tokens_received"] // stats["total_calls"]
         lines.append(f"  Avg response:    ~{avg} tokens")
     if lazy_saved > 0:
-        lines.append(f"  Saved vs always-on: ~{lazy_saved:,} tokens ({len(explored)} servers × lazy-load)")
+        n = len(not_morphed)
+        lines.append(
+            f"  Saved vs always-on: ~{lazy_saved:,} tokens "
+            f"[based on {n} inspected schema(s)]"
+        )
 
     return "\n".join(lines)
 
