@@ -19,6 +19,7 @@ from chameleon_mcp.constants import (
     TIMEOUT_STDIO_INIT,
     TIMEOUT_STDIO_TOOL,
 )
+import chameleon_mcp.credentials as _creds
 from chameleon_mcp.credentials import SMITHERY_API_KEY, _credentials_guide, _resolve_config
 from chameleon_mcp.registry import SmitheryRegistry
 from chameleon_mcp.session import session
@@ -75,6 +76,7 @@ class _PoolEntry:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     name: str = ""
     last_used_at: float = field(default_factory=time.monotonic)
+    dotenv_revision: int = 0    # _creds._dotenv_revision at spawn time
 
     def pid(self) -> int | None:
         return self.proc.pid
@@ -419,15 +421,26 @@ class PersistentStdioTransport(BaseTransport):
         ))
         await proc.stdin.drain()
 
+        entry.dotenv_revision = _creds._dotenv_revision
         _process_pool[self._pool_key] = entry
         return entry
 
     async def _get_or_start(self) -> _PoolEntry:
-        """Return existing live pool entry or start a new one (evicts stale entries first)."""
+        """Return existing live pool entry or start a new one.
+
+        Evicts entries that are dead, idle too long, or spawned before a .env
+        change — so new credentials are always picked up on the next call.
+        """
         _evict_stale_pool_entries()
         entry = _process_pool.get(self._pool_key)
         if entry is not None and entry.is_alive():
-            return entry
+            if entry.dotenv_revision != _creds._dotenv_revision:
+                # .env changed since this process was spawned — kill and respawn
+                with contextlib.suppress(Exception):
+                    entry.proc.kill()
+                _process_pool.pop(self._pool_key, None)
+            else:
+                return entry
         return await self._start_process()
 
     async def list_tools(self) -> list[dict]:

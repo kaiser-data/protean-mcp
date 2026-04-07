@@ -16,13 +16,35 @@ _DOTENV_PATHS = [
     Path(ENV_PATH),
 ]
 
+# Revision counter — increments whenever any .env file changes on disk.
+# Pool entries store their revision at spawn time; stale entries are evicted
+# and respawned so they pick up new credentials automatically.
+_dotenv_revision: int = 0
+_last_dotenv_mtimes: tuple = ()
+
+
+def _dotenv_mtimes() -> tuple:
+    """Return mtime tuple for all .env paths (None if absent)."""
+    result = []
+    for p in _DOTENV_PATHS:
+        try:
+            result.append(p.stat().st_mtime)
+        except OSError:
+            result.append(None)
+    return tuple(result)
+
 
 def _reload_dotenv() -> None:
-    """Re-read all .env locations. CWD wins. Safe to call on every credential check."""
+    """Re-read all .env locations. CWD wins. Increments _dotenv_revision when files change."""
+    global _dotenv_revision, _last_dotenv_mtimes
+    current_mtimes = _dotenv_mtimes()
     for p in _DOTENV_PATHS[:-1]:
         if p.exists():
             load_dotenv(p, override=False)
     load_dotenv(_DOTENV_PATHS[-1], override=True)  # CWD .env wins
+    if current_mtimes != _last_dotenv_mtimes:
+        _dotenv_revision += 1
+        _last_dotenv_mtimes = current_mtimes
 
 
 def _registry_headers():

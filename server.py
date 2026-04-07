@@ -26,6 +26,7 @@ from chameleon_mcp.credentials import (  # noqa: E402, F401
     SMITHERY_API_KEY,
     _credentials_guide,
     _credentials_inspect_block,
+    _dotenv_revision,
     _registry_headers,
     _reload_dotenv,
     _resolve_config,
