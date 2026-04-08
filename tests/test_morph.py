@@ -13,7 +13,7 @@ class TestBaseToolNames:
         assert isinstance(_BASE_TOOL_NAMES, set)
 
     def test_core_tools_present(self):
-        expected = {"search", "inspect", "call", "morph", "shed", "status"}
+        expected = {"search", "inspect", "call", "mount", "unmount", "status"}
         assert expected.issubset(_BASE_TOOL_NAMES)
 
     def test_new_tools_present(self):
@@ -146,7 +146,7 @@ class TestMorphUsesPersistentTransport:
     async def test_list_tools_called_on_persistent_transport(self):
         """_register_proxy_tools receives a PersistentStdioTransport, not StdioTransport."""
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import PersistentStdioTransport, ServerInfo, _registry, morph
+        from server import PersistentStdioTransport, ServerInfo, _registry, mount
 
         srv = ServerInfo(
             id="test-org/pool-server", name="pool-server", description="",
@@ -174,7 +174,7 @@ class TestMorphUsesPersistentTransport:
             ])
             MockPersistent.return_value = mock_transport
 
-            await morph("test-org/pool-server", ctx)
+            await mount("test-org/pool-server", ctx)
 
         MockPersistent.assert_called_once_with(["npx", "-y", "pool-server"])
         mock_transport.list_tools.assert_called_once()
@@ -415,7 +415,7 @@ class TestMorphRegistersAll:
     async def test_resources_registered_for_stdio_transport(self):
         """morph() calls _register_proxy_resources when transport has list_resources."""
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import ServerInfo, _registry, morph, session
+        from server import ServerInfo, _registry, mount, session
 
         srv = ServerInfo(
             id="org/res-server", name="res-server", description="",
@@ -446,7 +446,7 @@ class TestMorphRegistersAll:
             mock_t.list_resources = AsyncMock(return_value=[{"uri": "config://org/cfg", "name": "cfg"}])
             mock_t.list_prompts = AsyncMock(return_value=[])
             MockPST.return_value = mock_t
-            await morph("org/res-server", ctx)
+            await mount("org/res-server", ctx)
 
         mock_rr.assert_called_once()
         # list_resources was called via wait_for on the transport
@@ -455,7 +455,7 @@ class TestMorphRegistersAll:
     async def test_resources_skipped_for_http_transport(self):
         """morph() does not attempt list_resources on HTTPSSETransport (no such method)."""
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import ServerInfo, _registry, morph
+        from server import ServerInfo, _registry, mount
 
         srv = ServerInfo(
             id="http-org/http-server", name="http-server", description="",
@@ -476,7 +476,7 @@ class TestMorphRegistersAll:
              patch("chameleon_mcp.tools._register_proxy_resources") as mock_rr, \
              patch("chameleon_mcp.tools._register_proxy_prompts") as mock_rp, \
              patch("chameleon_mcp.tools.HTTPSSETransport"):
-            await morph("http-org/http-server", ctx)
+            await mount("http-org/http-server", ctx)
 
         mock_rr.assert_not_called()
         mock_rp.assert_not_called()
@@ -484,7 +484,7 @@ class TestMorphRegistersAll:
     async def test_graceful_on_list_resources_exception(self):
         """morph() succeeds even if list_resources raises."""
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import ServerInfo, _registry, morph
+        from server import ServerInfo, _registry, mount
 
         srv = ServerInfo(
             id="org/exc-server", name="exc-server", description="",
@@ -507,7 +507,7 @@ class TestMorphRegistersAll:
             mock_t.list_resources = AsyncMock(side_effect=RuntimeError("timeout"))
             mock_t.list_prompts = AsyncMock(return_value=[])
             MockPST.return_value = mock_t
-            result = await morph("org/exc-server", ctx)
+            result = await mount("org/exc-server", ctx)
 
         # morph should still succeed
         assert "exc_tool" in result or "Morphed" in result

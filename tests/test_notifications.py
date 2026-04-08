@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import ServerInfo, _registry, morph, session, shed
+from server import ServerInfo, _registry, mount, session, unmount
 
 
 def _make_ctx(*, tools=True, resources=True, prompts=True):
@@ -49,7 +49,7 @@ class TestMorphNotifications:
             mt.list_resources = AsyncMock(return_value=[])
             mt.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx)
+            await mount("org/notif-server", ctx)
 
         ctx.session.send_tool_list_changed.assert_called_once()
 
@@ -68,7 +68,7 @@ class TestMorphNotifications:
             mt.list_resources = AsyncMock(return_value=[])
             mt.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx)
+            await mount("org/notif-server", ctx)
 
         ctx.session.send_resource_list_changed.assert_not_called()
 
@@ -87,7 +87,7 @@ class TestMorphNotifications:
             mt.list_resources = AsyncMock(return_value=[{"uri": "config://srv/r1", "name": "r1"}])
             mt.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx)
+            await mount("org/notif-server", ctx)
 
         ctx.session.send_resource_list_changed.assert_called_once()
 
@@ -106,7 +106,7 @@ class TestMorphNotifications:
             mt.list_resources = AsyncMock(return_value=[])
             mt.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx)
+            await mount("org/notif-server", ctx)
 
         ctx.session.send_prompt_list_changed.assert_not_called()
 
@@ -125,7 +125,7 @@ class TestMorphNotifications:
             mt.list_resources = AsyncMock(return_value=[])
             mt.list_prompts = AsyncMock(return_value=[{"name": "my_prompt", "description": "", "arguments": []}])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx)
+            await mount("org/notif-server", ctx)
 
         ctx.session.send_prompt_list_changed.assert_called_once()
 
@@ -139,7 +139,7 @@ class TestMorphNotifications:
             mt = MagicMock()
             mt.list_tools = AsyncMock(return_value=[])  # no tools
             MockT.return_value = mt
-            result = await morph("org/notif-server", ctx)
+            result = await mount("org/notif-server", ctx)
 
         assert "No tools" in result
         ctx.session.send_tool_list_changed.assert_not_called()
@@ -149,7 +149,7 @@ class TestMorphNotifications:
         ctx = _make_ctx()
 
         with patch.object(_registry, "get_server", AsyncMock(return_value=None)):
-            result = await morph("nonexistent/server", ctx)
+            result = await mount("nonexistent/server", ctx)
 
         assert "not found" in result.lower()
         ctx.session.send_tool_list_changed.assert_not_called()
@@ -174,7 +174,7 @@ class TestShedNotifications:
             mt.list_resources = AsyncMock(return_value=[])
             mt.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx)
+            await mount("org/notif-server", ctx)
 
     async def test_tool_list_changed_called_on_shed(self):
         """send_tool_list_changed is called exactly once on shed()."""
@@ -182,7 +182,7 @@ class TestShedNotifications:
         await self._morph_first(ctx_morph)
 
         ctx_shed = _make_ctx()
-        await shed(ctx_shed)
+        await unmount(ctx_shed)
 
         ctx_shed.session.send_tool_list_changed.assert_called_once()
 
@@ -200,13 +200,13 @@ class TestShedNotifications:
             mt.list_resources = AsyncMock(return_value=[{"uri": "config://srv/r1", "name": "r1"}])
             mt.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mt
-            await morph("org/notif-server", ctx_morph)
+            await mount("org/notif-server", ctx_morph)
 
         # Inject resource into session so shed sees it
         session["morphed_resources"] = ["config://srv/r1"]
 
         ctx_shed = _make_ctx()
-        await shed(ctx_shed)
+        await unmount(ctx_shed)
 
         ctx_shed.session.send_resource_list_changed.assert_called_once()
 
@@ -218,7 +218,7 @@ class TestShedNotifications:
         session["morphed_prompts"] = []
 
         ctx = _make_ctx()
-        result = await shed(ctx)
+        result = await unmount(ctx)
 
         assert result == "Already in base form."
         ctx.session.send_tool_list_changed.assert_not_called()

@@ -26,17 +26,17 @@
         stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
   <text x="365" y="97" fill="#93c5fd" font-size="10">stdio</text>
 
-  <!-- Chameleon MCP box -->
+  <!-- Protean MCP box -->
   <rect x="20" y="112" width="660" height="122" rx="12"
         fill="#f0fdf4" stroke="#22c55e" stroke-width="2.5"/>
-  <text x="350" y="138" text-anchor="middle" fill="#15803d" font-size="16" font-weight="700">🦎  Chameleon MCP</text>
+  <text x="350" y="138" text-anchor="middle" fill="#15803d" font-size="16" font-weight="700">🦎  Protean MCP</text>
 
   <!-- 6 core tool pills -->
   <rect x="129" y="150" width="70" height="24" rx="12" fill="#bbf7d0" stroke="#4ade80" stroke-width="1"/>
-  <text x="164" y="167" text-anchor="middle" fill="#15803d" font-size="11.5">morph()</text>
+  <text x="164" y="167" text-anchor="middle" fill="#15803d" font-size="11.5">mount()</text>
 
   <rect x="209" y="150" width="58" height="24" rx="12" fill="#bbf7d0" stroke="#4ade80" stroke-width="1"/>
-  <text x="238" y="167" text-anchor="middle" fill="#15803d" font-size="11.5">shed()</text>
+  <text x="238" y="167" text-anchor="middle" fill="#15803d" font-size="11.5">unmount()</text>
 
   <rect x="277" y="150" width="72" height="24" rx="12" fill="#bbf7d0" stroke="#4ade80" stroke-width="1"/>
   <text x="313" y="167" text-anchor="middle" fill="#15803d" font-size="11.5">search()</text>
@@ -54,7 +54,7 @@
   <rect x="50" y="186" width="600" height="36" rx="7"
         fill="white" stroke="#bbf7d0" stroke-width="1.5" stroke-dasharray="6 3"/>
   <text x="350" y="209" text-anchor="middle" fill="#94a3b8" font-size="10.5">
-    after morph() →  read_file  ·  git_log  ·  brave_web_search  ·  get_current_time  ·  …
+    after mount() →  read_file  ·  git_log  ·  brave_web_search  ·  get_current_time  ·  …
   </text>
 
   <!-- Arrows to sources -->

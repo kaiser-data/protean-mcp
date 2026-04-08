@@ -1,8 +1,8 @@
 # Agent Patterns
 
-Common patterns for AI agents using Chameleon MCP.
+Common patterns for AI agents using Protean MCP.
 
-## Pattern 1: Search → Quality Gate → Morph
+## Pattern 1: Search → Quality Gate → Mount
 
 Validate a server before committing to it:
 
@@ -14,30 +14,30 @@ search("web scraping", limit=5)
 score = test("exa/exa")
 # → Score: 85/100 (Good) — proceed
 
-# Step 3: Morph only if quality is acceptable
-morph("exa/exa")
+# Step 3: Mount only if quality is acceptable
+mount("exa/exa")
 web_search_exa(query="latest Python news")
 ```
 
 ## Pattern 2: Chain Morphs
 
-Morph into multiple servers in sequence for a multi-step task:
+Mount into multiple servers in sequence for a multi-step task:
 
 ```python
 # Step 1: Research
-morph("exa/exa")
+mount("exa/exa")
 results = web_search_exa(query="MCP server list 2025")
-shed()
+unmount()
 
 # Step 2: Fetch and extract
-morph("fetch-mcp/fetch-mcp")
+mount("fetch-mcp/fetch-mcp")
 content = fetch_page(url="https://example.com/mcp-servers")
-shed()
+unmount()
 
 # Step 3: Write output
-morph("@modelcontextprotocol/server-filesystem")
+mount("@modelcontextprotocol/server-filesystem")
 write_file(path="/tmp/report.md", content=f"# Research\n{results}\n\n{content}")
-shed()
+unmount()
 ```
 
 ## Pattern 3: Hardware Pipeline
@@ -48,15 +48,15 @@ Audio processing with persistent connections:
 # Connect audio server once
 connect("uvx voice-mode", name="audio", timeout=30)
 
-# Morphing uses the persistent process
-morph("voice-mode")
+# Mounting uses the persistent process
+mount("voice-mode")
 
 # Pipeline: listen → process → speak
 transcript = listen(duration=10)
 # (call other tools to process transcript)
 speak(text=f"I heard: {transcript}")
 
-shed()
+unmount()
 release("audio")
 ```
 
@@ -84,10 +84,10 @@ bench("exa/exa", "web_search_exa", {"query": "test"}, iterations=3)
 
 # If p95 < 1000ms, proceed with batch
 queries = ["AI news", "Python MCP", "FastAPI tutorial"]
-morph("exa/exa")
+mount("exa/exa")
 for q in queries:
     web_search_exa(query=q)
-shed()
+unmount()
 ```
 
 ## Pattern 6: Multi-Registry Discovery
@@ -103,19 +103,19 @@ inspect(smithery_results[0].id)
 inspect(npm_results[0].id)
 
 # Pick the one with better tooling
-morph("@modelcontextprotocol/server-filesystem")
+mount("@modelcontextprotocol/server-filesystem")
 ```
 
 ## Anti-Patterns to Avoid
 
-### Don't morph without shedding
+### Don't mount without shedding
 ```python
-morph("server-a")
-morph("server-b")  # ✓ Auto-sheds server-a first
-# But explicit shed() is clearer:
-morph("server-a")
-shed()
-morph("server-b")
+mount("server-a")
+mount("server-b")  # ✓ Auto-sheds server-a first
+# But explicit unmount() is clearer:
+mount("server-a")
+unmount()
+mount("server-b")
 ```
 
 ### Don't use call() for hardware tools
@@ -136,11 +136,11 @@ release("voice")
 # ❌ Process leaks
 connect("uvx voice-mode", name="voice")
 # ... work ...
-shed()   # only removes morph, doesn't kill process!
+unmount()   # only removes mount, doesn't kill process!
 
 # ✓ Always release hardware connections
 connect("uvx voice-mode", name="voice")
 # ... work ...
-shed()
+unmount()
 release("voice")
 ```

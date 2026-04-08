@@ -1,16 +1,16 @@
 # New Session Prompt: Decouple from Smithery / Open Source Hardening
 
-Copy and paste this into a new Claude Code session opened in the `Chameleon MCP` project directory.
+Copy and paste this into a new Claude Code session opened in the `Protean MCP` project directory.
 
 ---
 
 ## Prompt
 
 ```
-I need you to review the Chameleon MCP codebase and README, then produce a concrete implementation plan to make this open source project less dependent on Smithery (a commercial platform).
+I need you to review the Protean MCP codebase and README, then produce a concrete implementation plan to make this open source project less dependent on Smithery (a commercial platform).
 
 Context:
-- Chameleon MCP is an open source MIT-licensed MCP proxy tool
+- Protean MCP is an open source MIT-licensed MCP proxy tool
 - It currently treats Smithery as the primary registry, but that's a commercial service
 - The goal: GitHub repos and npm/PyPI packages should be the primary path, Smithery is one optional registry among several
 - The project should work fully without any commercial API keys
@@ -32,7 +32,7 @@ A. Code changes needed to make Smithery truly optional (not just documented as o
    - test() and bench() — currently says "not found in registry" for GitHub paths, needs fix
 
 B. GitHub as a first-class server source:
-   - Add `github:user/repo` as a recognized server_id prefix in morph(), call(), inspect()
+   - Add `github:user/repo` as a recognized server_id prefix in mount(), call(), inspect()
    - Detect whether the repo is npm or pip based (check for package.json vs pyproject.toml)
    - Route to `npx github:user/repo` or `uvx --from git+https://github.com/...` accordingly
    - Add a GitHubRegistry that searches GitHub's repo API (topic: mcp-server)

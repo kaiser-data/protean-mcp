@@ -119,10 +119,10 @@ async def _fetch_resource_docs(transport: "BaseTransport") -> str:
         return ""
 
 
-# Base tool names — used for collision detection in morph()
+# Base tool names — used for collision detection in mount()
 _BASE_TOOL_NAMES = {
     "search", "inspect", "call", "run", "fetch",
-    "skill", "key", "auto", "status", "morph", "shed", "craft",
+    "skill", "key", "auto", "status", "mount", "unmount", "craft",
     "connect", "release", "test", "bench", "setup",
 }
 
@@ -223,13 +223,13 @@ async def call(
     arguments: dict | None = None,
     config: dict | None = None,
 ) -> str:
-    """Call a tool on an MCP server. server_id optional when morphed — current form used.
-    After morph(): call('list_directory', arguments={'path': '/tmp'})
+    """Call a tool on an MCP server. server_id optional when mounted — current form used.
+    After mount(): call('list_directory', arguments={'path': '/tmp'})
     Direct:        call('list_directory', '@some-server', {'path': '/tmp'})"""
     if server_id is None:
         server_id = session.get("current_form")
         if not server_id:
-            return "Provide a server_id, or use morph() first to set a current form."
+            return "Provide a server_id, or use mount() first to set a current form."
     if arguments is None:
         arguments = {}
     if config is None:
@@ -537,8 +537,8 @@ async def auto(
 
 
 @mcp.tool()
-async def morph(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
-    """Become a server — inject its tools live. tools=[...] for lean morph (fewer tokens)."""
+async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
+    """Become a server — inject its tools live. tools=[...] for lean mount (fewer tokens)."""
     # 1. Check pool connections first (friendly names from connect() take priority)
     pool_conn = None
     for _pk, conn in session["connections"].items():
@@ -765,8 +765,8 @@ async def morph(server_id: str, ctx: Context, tools: list[str] | None = None) ->
 
 
 @mcp.tool()
-async def shed(ctx: Context, release: bool = False) -> str:
-    """Remove morphed tools. release=True kills the process and frees RAM immediately."""
+async def unmount(ctx: Context, release: bool = False) -> str:
+    """Remove mounted tools. release=True kills the process and frees RAM immediately."""
     has_tools = bool(session["morphed_tools"])
     has_resources = bool(session.get("morphed_resources"))
     has_prompts = bool(session.get("morphed_prompts"))
@@ -825,7 +825,7 @@ async def craft(
     method: str = "POST",
     headers: dict | None = None,
 ) -> str:
-    """Register a custom tool backed by your HTTP endpoint — live immediately. POST=JSON body, GET=query params. shed() removes it."""
+    """Register a custom tool backed by your HTTP endpoint — live immediately. POST=JSON body, GET=query params. unmount() removes it."""
     import inspect as _inspect
 
     if not name or not name.replace("_", "").isalnum():
@@ -890,7 +890,7 @@ async def craft(
     return (
         f"✓ Tool '{name}' registered — {_method} {url}\n"
         f"Params: {param_list}\n\n"
-        f"Call it directly, or shed() to remove it."
+        f"Call it directly, or unmount() to remove it."
     )
 
 
@@ -1072,7 +1072,7 @@ async def test(server_id: str, level: str = "basic") -> str:
         score += 10
         checks.append("✅ No name collisions with Chameleon base tools (+10)")
     else:
-        checks.append(f"⚠️  Name collisions: {', '.join(collisions)} (0) — will be prefixed on morph()")
+        checks.append(f"⚠️  Name collisions: {', '.join(collisions)} (0) — will be prefixed on mount()")
 
     # Check 7: Live tool calls (full mode only, 10 pts per tool, max 5 tools)
     if level == "full" and tools:

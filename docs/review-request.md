@@ -1,10 +1,10 @@
-# Code Review Request — Chameleon MCP
+# Code Review Request — Protean MCP
 
 Hi,
 
-I'd love a review of a small open source Python project I've been building called **Chameleon MCP**. It's an MIT-licensed MCP proxy server.
+I'd love a review of a small open source Python project I've been building called **Protean MCP**. It's an MIT-licensed MCP proxy server.
 
-**Repo**: https://github.com/your-org/chameleon-mcp
+**Repo**: https://github.com/your-org/protean-mcp
 **Language**: Python 3.11+, uses FastMCP
 **Size**: ~1,500 lines across 7 modules
 
@@ -14,17 +14,17 @@ I'm specifically interested in feedback on three things: **novelty**, **code sty
 
 ## What it does (30-second summary)
 
-Most AI clients (Claude Desktop, Cursor, etc.) require you to list MCP servers statically in a config file and restart to add new ones. Chameleon MCP is a single server you register once, and from there you can discover, install, and use any other MCP server at runtime — without touching config files.
+Most AI clients (Claude Desktop, Cursor, etc.) require you to list MCP servers statically in a config file and restart to add new ones. Protean MCP is a single server you register once, and from there you can discover, install, and use any other MCP server at runtime — without touching config files.
 
 ```
 # From within Claude or any MCP client:
 search("web search")                          # find available servers
-morph("@modelcontextprotocol/server-brave")   # add their tools instantly
+mount("@modelcontextprotocol/server-brave")   # add their tools instantly
 brave_web_search(query="MCP 2025")            # use them natively
-shed()                                         # remove them when done
+unmount()                                         # remove them when done
 ```
 
-The `morph()` call downloads and starts the target server as a subprocess, then registers its tools into the live MCP session via FastMCP's runtime API. `shed()` removes them. The running process is pooled and reused across calls.
+The `mount()` call downloads and starts the target server as a subprocess, then registers its tools into the live MCP session via FastMCP's runtime API. `unmount()` removes them. The running process is pooled and reused across calls.
 
 ---
 
@@ -37,7 +37,7 @@ The core pattern I haven't seen elsewhere:
 - **Process pool for stdio MCP servers**: `PersistentStdioTransport` keeps the subprocess alive across tool calls (keyed by `json.dumps(install_cmd)`), avoiding the cold-start penalty on each call. I haven't seen this in other MCP client implementations.
 
 Questions I'd appreciate thoughts on:
-- Is the `morph/shed` pattern genuinely novel, or is there prior art I should be aware of?
+- Is the `mount/unmount` pattern genuinely novel, or is there prior art I should be aware of?
 - Does the process pool approach have known failure modes I should guard against?
 
 ---
@@ -66,7 +66,7 @@ Things I'm uncertain about stylistically:
 
 ## 3. Security
 
-The project's fundamental design is that it executes arbitrary npm/pip packages. `morph("some-package")` runs `npx -y some-package` as a subprocess. This is intentional and the core value proposition — but it means I need to be honest about the threat model.
+The project's fundamental design is that it executes arbitrary npm/pip packages. `mount("some-package")` runs `npx -y some-package` as a subprocess. This is intentional and the core value proposition — but it means I need to be honest about the threat model.
 
 **Fixed before this review:**
 
@@ -119,16 +119,16 @@ Subprocesses inherit the full parent environment (all env vars), unrestricted fi
 ## How to run it
 
 ```bash
-pip install chameleon-mcp
+pip install protean-mcp
 # Add to your MCP client config, no API keys required
 ```
 
 Or clone and run from source:
 ```bash
-git clone https://github.com/your-org/chameleon-mcp
-cd chameleon-mcp
+git clone https://github.com/your-org/protean-mcp
+cd protean-mcp
 pip install -e .
-chameleon-mcp
+protean-mcp
 ```
 
 Thanks for any time you can give it.

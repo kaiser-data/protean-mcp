@@ -31,10 +31,10 @@ This matches `_estimate_tokens()` in `chameleon_mcp/utils.py` — the same heuri
 
 ## Interpreting the savings table
 
-The comparison shows chameleon's total overhead **including one active morphed server** vs loading N servers all at once:
+The comparison shows chameleon's total overhead **including one active mounted server** vs loading N servers all at once:
 
-- **Chameleon lean** = 6 lean tools + 1 morphed server (best case per task)
-- **Chameleon forge** = 17 full tools + 1 morphed server
+- **Chameleon lean** = 6 lean tools + 1 mounted server (best case per task)
+- **Chameleon forge** = 17 full tools + 1 mounted server
 - **Always-on baseline** = N × 8 tools × 97 tokens permanently in context
 
 Lean mode is more cost-effective than always-on once you have 2+ servers. Forge becomes cost-effective at 3+ servers.
@@ -43,7 +43,7 @@ Lean mode is more cost-effective than always-on once you have 2+ servers. Forge 
 
 ```
 ==============================================================
-  Chameleon MCP — Token Overhead Benchmark
+  Protean MCP — Token Overhead Benchmark
 ==============================================================
 
 === Profile sizes (actual registered schemas) ===
@@ -74,14 +74,14 @@ Lean mode is more cost-effective than always-on once you have 2+ servers. Forge 
   bench                           133  forge only
   connect                         128  forge only
   run                             116  forge only
-  morph                           101  lean + forge
+  mount                           101  lean + forge
   search                           99  lean + forge
   test                             87  forge only
   skill                            84  forge only
   key                              79  lean + forge
   fetch                            78  forge only
   setup                            66  forge only
-  shed                             65  lean + forge
+  unmount                             65  lean + forge
   inspect                          63  lean + forge
   release                          55  forge only
   status                           42  lean + forge

@@ -1,15 +1,15 @@
-"""Chameleon MCP — entry point and re-export facade.
+"""Protean MCP — entry point and re-export facade.
 
 All logic lives in the chameleon_mcp package. This file:
   1. Loads .env before any chameleon_mcp imports read os.getenv() at module level.
   2. Imports all modules so their @mcp.tool() decorators register with the shared mcp instance.
-  3. Prunes tools based on CHAMELEON_TOOLS env var (default: lean 6-tool profile).
+  3. Prunes tools based on CHAMELEON_TOOLS env var (default: lean 7-tool profile).
   4. Re-exports public names so existing tests (from server import ...) continue to work.
 
 CHAMELEON_TOOLS env var controls which tools are registered:
-  (not set)                    — lean profile: morph, shed, search, inspect, key, status
-  CHAMELEON_TOOLS=all          — all 17 tools (forge / evaluator mode)
-  CHAMELEON_TOOLS=morph,shed   — exactly those tools
+  (not set)                     — lean profile: mount, unmount, search, inspect, key, status, call
+  CHAMELEON_TOOLS=all           — all 17 tools (forge / evaluator mode)
+  CHAMELEON_TOOLS=mount,unmount — exactly those tools
 """
 
 import os
@@ -87,15 +87,15 @@ from chameleon_mcp.tools import (  # noqa: E402, F401
     fetch,
     inspect,
     key,
-    morph,
+    mount,
     release,
     run,
     search,
     setup,
-    shed,
     skill,
     status,
     test,
+    unmount,
 )
 from chameleon_mcp.transport import (  # noqa: E402, F401
     BaseTransport,
@@ -125,7 +125,7 @@ from chameleon_mcp.utils import (  # noqa: E402, F401
 # ── Tool profile selection ────────────────────────────────────────────────────
 # All tools registered above via @mcp.tool(). Prune to the requested profile.
 
-_LEAN_TOOLS = {"morph", "shed", "search", "inspect", "key", "status", "call"}
+_LEAN_TOOLS = {"mount", "unmount", "search", "inspect", "key", "status", "call"}
 _CHAMELEON_TOOLS_ENV = os.getenv("CHAMELEON_TOOLS", "")
 
 if _CHAMELEON_TOOLS_ENV.lower() == "all":

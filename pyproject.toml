@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "chameleon-mcp"
-version = "0.6.2"
-description = "The shape-shifting MCP hub — morph() into any server at runtime. 3,000+ servers. No config. No restart."
+name = "protean-mcp"
+version = "0.7.0"
+description = "The shape-shifting MCP hub — mount() into any MCP server at runtime. 7 registries. No restart."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Chameleon MCP Contributors" }]
@@ -17,8 +17,8 @@ keywords = [
     "ai-agents",
     "llm-tools",
     "fastmcp",
-    "smithery",
     "mcp-server",
+    "mcp-registry",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -47,14 +47,16 @@ dev = [
 ]
 
 [project.scripts]
+protean-mcp = "server:mcp.run"
+protean-forge = "server_forge:mcp.run"
 chameleon-mcp = "server:mcp.run"
 chameleon-forge = "server_forge:mcp.run"
 
 [project.urls]
-Homepage = "https://github.com/kaiser-data/chameleon-mcp"
-Repository = "https://github.com/kaiser-data/chameleon-mcp"
-Issues = "https://github.com/kaiser-data/chameleon-mcp/issues"
-Documentation = "https://github.com/kaiser-data/chameleon-mcp/tree/main/docs"
+Homepage = "https://github.com/kaiser-data/protean-mcp"
+Repository = "https://github.com/kaiser-data/protean-mcp"
+Issues = "https://github.com/kaiser-data/protean-mcp/issues"
+Documentation = "https://github.com/kaiser-data/protean-mcp/tree/main/docs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]

@@ -1,6 +1,6 @@
 # Tools Reference
 
-All 15 Chameleon tools with parameters, return format, and examples.
+All 15 Protean MCP tools with parameters, return format, and examples.
 
 ---
 
@@ -87,30 +87,30 @@ fetch("https://news.ycombinator.com", intent="top AI stories today")
 
 ---
 
-## Morphing Tools
+## Mounting Tools
 
-### `morph(server_id)`
+### `mount(server_id)`
 
 Take a server's form — register its tools directly in your tool list. Requires FastMCP context.
 
 ```python
-morph("exa/exa")
+mount("exa/exa")
 # → Tools appear: web_search_exa, find_similar_exa, ...
 # Call them directly now
 web_search_exa(query="MCP servers")
 ```
 
-**Note:** Automatically sheds previous form before morphing.
+**Note:** Automatically unmounts previous form before mounting.
 
 ---
 
-### `shed()`
+### `unmount()`
 
-Drop current form, remove all morphed tools, return to base Chameleon.
+Drop current form, remove all mounted tools, return to base Protean MCP.
 
 ```python
-shed()
-# → Morphed tools removed from tool list
+unmount()
+# → Mounted tools removed from tool list
 ```
 
 **Note:** Does NOT kill persistent connections. Use `release(name)` for that.
@@ -210,7 +210,7 @@ key("EXA_API_KEY", "exa-xyz...")
 
 ### `skill(qualified_name)`
 
-Inject a Smithery skill prompt into context. Requires API key.
+Inject a skill prompt into context. Requires API key.
 
 ```python
 skill("smithery/web-research")

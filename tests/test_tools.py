@@ -411,7 +411,7 @@ class TestCraftTool:
         import respx
         import httpx
         from unittest.mock import MagicMock, AsyncMock
-        from server import craft, shed, mcp, session
+        from server import craft, unmount, mcp, session
 
         ctx = MagicMock()
         ctx.session = MagicMock()
@@ -428,7 +428,7 @@ class TestCraftTool:
             )
 
         assert "tmp_tool" in session["morphed_tools"]
-        await shed(ctx)
+        await unmount(ctx)
         assert "tmp_tool" not in session["morphed_tools"]
 
     async def test_craft_invalid_name_rejected(self):
@@ -474,7 +474,7 @@ class TestLeanMorph:
     async def test_lean_morph_filters_tools(self):
         """morph(tools=['read_file']) only registers the specified tool."""
         from unittest.mock import MagicMock, AsyncMock, patch
-        from server import _registry, morph, session, mcp, ServerInfo
+        from server import _registry, mount, session, mcp, ServerInfo
 
         srv = ServerInfo(
             id="filesystem", name="Filesystem", description="fs",
@@ -499,7 +499,7 @@ class TestLeanMorph:
             mock_t.list_tools = AsyncMock(return_value=all_tools)
             MockTransport.return_value = mock_t
 
-            result = await morph("filesystem", ctx, tools=["read_file"])
+            result = await mount("filesystem", ctx, tools=["read_file"])
 
         assert "read_file" in session["morphed_tools"]
         assert "write_file" not in session["morphed_tools"]
@@ -509,7 +509,7 @@ class TestLeanMorph:
     async def test_full_morph_registers_all_tools(self):
         """morph() with no tools filter registers everything."""
         from unittest.mock import MagicMock, AsyncMock, patch
-        from server import _registry, morph, session, ServerInfo
+        from server import _registry, mount, session, ServerInfo
 
         srv = ServerInfo(
             id="filesystem", name="Filesystem", description="fs",
@@ -533,7 +533,7 @@ class TestLeanMorph:
             mock_t.list_tools = AsyncMock(return_value=all_tools)
             MockTransport.return_value = mock_t
 
-            await morph("filesystem", ctx)
+            await mount("filesystem", ctx)
 
         assert "read_file" in session["morphed_tools"]
         assert "write_file" in session["morphed_tools"]
@@ -559,7 +559,7 @@ class TestMorphCredentialWarning:
         """morph() output includes key() hint when a tool schema references an unset env var."""
         import os
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import _registry, morph, session
+        from server import _registry, mount, session
 
         # Ensure the env var is NOT set
         env_var = "TEST_CRED_SERVER_API_KEY"
@@ -586,7 +586,7 @@ class TestMorphCredentialWarning:
             mock_t.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mock_t
 
-            result = await morph("org/cred-server", ctx)
+            result = await mount("org/cred-server", ctx)
 
         assert env_var in result
         assert 'key("' in result
@@ -595,7 +595,7 @@ class TestMorphCredentialWarning:
         """No credential warning when the referenced env var is already set."""
         import os
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import _registry, morph
+        from server import _registry, mount
 
         env_var = "TEST_CRED_ALREADY_SET_KEY"
         os.environ[env_var] = "sk-test-value"
@@ -622,7 +622,7 @@ class TestMorphCredentialWarning:
                 mock_t.list_prompts = AsyncMock(return_value=[])
                 MockT.return_value = mock_t
 
-                result = await morph("org/cred-server", ctx)
+                result = await mount("org/cred-server", ctx)
 
             # No warning since the env var is set
             assert "Credentials may be required" not in result
@@ -632,7 +632,7 @@ class TestMorphCredentialWarning:
     async def test_morph_succeeds_when_credential_probe_fails(self):
         """morph() succeeds even if _probe_requirements raises unexpectedly."""
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import _registry, morph
+        from server import _registry, mount
 
         srv = self._make_srv()
 
@@ -653,7 +653,7 @@ class TestMorphCredentialWarning:
             mock_t.list_prompts = AsyncMock(return_value=[])
             MockT.return_value = mock_t
 
-            result = await morph("org/cred-server", ctx)
+            result = await mount("org/cred-server", ctx)
 
         # morph must succeed even when probe fails
         assert "Morphed" in result or "simple_tool" in result

@@ -1,13 +1,13 @@
 {
   "schema_version": "1.0",
-  "name": "chameleon-mcp",
-  "display_name": "Chameleon MCP",
-  "description": "The shape-shifting MCP hub. morph() into any of 3,000+ MCP servers at runtime. No config files. No restarts.",
+  "name": "protean-mcp",
+  "display_name": "Protean MCP",
+  "description": "The shape-shifting MCP hub. mount() into any MCP server at runtime. 7 registries. No restarts.",
   "version": "0.2.0",
   "license": "MIT",
-  "repository": "https://github.com/kaiser-data/chameleon-mcp",
+  "repository": "https://github.com/kaiser-data/protean-mcp",
   "install": {
-    "pip": "chameleon-mcp",
+    "pip": "protean-mcp",
     "source": "python server.py",
     "mcp_json": {
       "command": "python",
@@ -30,7 +30,7 @@
   "tools": {
     "discovery": ["search", "inspect", "auto"],
     "execution": ["call", "run", "fetch"],
-    "morphing": ["morph", "shed"],
+    "morphing": ["mount", "unmount"],
     "hardware": ["connect", "release"],
     "quality": ["test", "bench"],
     "management": ["status", "key", "skill"]
@@ -38,7 +38,7 @@
   "tool_count": 15,
   "all_tool_names": [
     "search", "inspect", "call", "run", "fetch",
-    "skill", "key", "auto", "status", "morph", "shed",
+    "skill", "key", "auto", "status", "mount", "unmount",
     "connect", "release", "test", "bench"
   ],
   "decision_guide": {

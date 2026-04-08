@@ -1,4 +1,4 @@
-# Chameleon MCP — 5-Minute Demo
+# Protean MCP — 5-Minute Demo
 
 This is the canonical "wow demo" — 8 steps that show every core capability in one session.
 
@@ -9,7 +9,7 @@ No config edits. No restarts. Copy each line into your AI client and run it.
 ## Prerequisites
 
 ```bash
-pip install chameleon-mcp
+pip install protean-mcp
 ```
 
 Add once to your MCP config and restart your client:
@@ -17,7 +17,7 @@ Add once to your MCP config and restart your client:
 ```json
 {
   "mcpServers": {
-    "chameleon": { "command": "chameleon-mcp" }
+    "chameleon": { "command": "protean-mcp" }
   }
 }
 ```
@@ -30,7 +30,7 @@ Add once to your MCP config and restart your client:
 status()
 ```
 
-Expected output: base Chameleon tools only, 0 morphed tools, token savings = 0.
+Expected output: base Chameleon tools only, 0 mounted tools, token savings = 0.
 
 ---
 
@@ -56,7 +56,7 @@ search("web scraping", registry="pypi")
 inspect("@modelcontextprotocol/server-puppeteer")
 ```
 
-Shows all tools and their schemas, required credentials, transport type, and an estimated token cost. Use this to decide whether to morph before spending tokens.
+Shows all tools and their schemas, required credentials, transport type, and an estimated token cost. Use this to decide whether to mount before spending tokens.
 
 ---
 
@@ -70,10 +70,10 @@ Returns a score from 0–100 across: connectivity, tool schema validity, respons
 
 ---
 
-## Step 5 — The aha moment: morph()
+## Step 5 — The aha moment: mount()
 
 ```
-morph("@modelcontextprotocol/server-puppeteer")
+mount("@modelcontextprotocol/server-puppeteer")
 ```
 
 Chameleon fetches the server's tool definitions and registers them **directly onto itself** via FastMCP's live API. After this call:
@@ -82,7 +82,7 @@ Chameleon fetches the server's tool definitions and registers them **directly on
 status()
 ```
 
-You'll see `puppeteer_navigate`, `puppeteer_screenshot`, `puppeteer_click`, etc. listed as active morphed tools. They are callable by name — no wrapper, no indirection.
+You'll see `puppeteer_navigate`, `puppeteer_screenshot`, `puppeteer_click`, etc. listed as active mounted tools. They are callable by name — no wrapper, no indirection.
 
 ```
 puppeteer_navigate(url="https://example.com")
@@ -101,13 +101,13 @@ Returns p50 and p95 latency across 5 runs. Compare two servers before deciding w
 
 ---
 
-## Step 7 — Chain to a second server without shedding
+## Step 7 — Chain to a second server without unmounting
 
 ```
-morph("@modelcontextprotocol/server-filesystem")
+mount("@modelcontextprotocol/server-filesystem")
 ```
 
-`morph()` automatically sheds the current form before injecting the new one. Now you have filesystem tools:
+`mount()` automatically sheds the current form before injecting the new one. Now you have filesystem tools:
 
 ```
 read_file(path="/tmp/homepage_notes.txt")
@@ -119,7 +119,7 @@ write_file(path="/tmp/scraped.txt", content="...")
 ## Step 8 — Final status with token savings
 
 ```
-shed()
+unmount()
 status()
 ```
 
@@ -130,7 +130,7 @@ Explored servers: 2
   Saved vs always-on: ~3,200 tokens (2 servers × lazy-load)
 ```
 
-This is the token cost you would have paid on every request if both servers were configured statically in `mcp.json`. With Chameleon, you only pay context cost when you actually morph in the server.
+This is the token cost you would have paid on every request if both servers were configured statically in `mcp.json`. With Chameleon, you only pay context cost when you actually mount in the server.
 
 ---
 
@@ -141,12 +141,12 @@ status()
 search("web scraping")
 inspect("@modelcontextprotocol/server-puppeteer")
 test("@modelcontextprotocol/server-puppeteer")
-morph("@modelcontextprotocol/server-puppeteer")
+mount("@modelcontextprotocol/server-puppeteer")
 puppeteer_navigate(url="https://example.com")
 bench("@modelcontextprotocol/server-puppeteer", "puppeteer_navigate", {"url": "https://example.com"}, n=5)
-morph("@modelcontextprotocol/server-filesystem")
+mount("@modelcontextprotocol/server-filesystem")
 read_file(path="/tmp/test.txt")
-shed()
+unmount()
 status()
 ```
 
@@ -160,8 +160,8 @@ status()
 | `search()` | Discovery across 4 registries: official, Smithery, npm, PyPI |
 | `inspect()` | Schema + token cost preview without spawning anything |
 | `test()` | Quality score before you commit |
-| `morph()` | Native tools injected live — no restart, no config edit |
+| `mount()` | Native tools injected live — no restart, no config edit |
 | Native tool call | Claude calls `puppeteer_navigate` as if it were always there |
 | `bench()` | Measured latency before permanent adoption |
-| Second `morph()` | Instant swap to a different server |
+| Second `mount()` | Instant swap to a different server |
 | `status()` final | Token savings vs always-on config, health of pool entries |

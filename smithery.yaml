@@ -1,9 +1,9 @@
-name: Chameleon MCP
-qualifiedName: kaiser-data/chameleon-mcp
+name: Protean MCP
+qualifiedName: kaiser-data/protean-mcp
 description: >
-  The shape-shifting MCP hub. morph() into any of 3,000+ MCP servers at runtime.
-  No config files. No restarts. Search → morph → call → shed in seconds.
-homepage: https://github.com/kaiser-data/chameleon-mcp
+  The shape-shifting MCP hub. mount() into any MCP server at runtime across 7 registries.
+  No config files. No restarts. Search → mount → call → unmount in seconds.
+homepage: https://github.com/kaiser-data/protean-mcp
 license: MIT
 transport: stdio
 
@@ -30,17 +30,17 @@ startCommand:
 
 tools:
   - name: search
-    description: Search 3,000+ MCP servers across Smithery and npm registries
+    description: Search MCP servers across 7 registries (official, npm, PyPI, Glama, GitHub, Smithery)
   - name: inspect
     description: Show a server's tools, credentials, and token cost
   - name: call
     description: Call any tool on any MCP server (HTTP or stdio)
   - name: run
     description: Run a tool from a local npm/pip package directly
-  - name: morph
+  - name: mount
     description: Take a server's form — register its tools directly in your context
-  - name: shed
-    description: Drop current form and return to base Chameleon tools
+  - name: unmount
+    description: Drop current form and return to base Protean tools
   - name: connect
     description: Connect a persistent hardware/audio MCP server (process stays alive)
   - name: release

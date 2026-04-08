@@ -1,13 +1,13 @@
-# Contributing to Chameleon MCP
+# Contributing to Protean MCP
 
 Thank you for helping make Chameleon better! This guide gets you to a working dev setup in under 5 minutes.
 
 ## Quick Setup
 
 ```bash
-git clone https://github.com/kaiser-data/chameleon-mcp
-cd chameleon-mcp
-make dev        # installs chameleon-mcp + dev deps (pytest, ruff)
+git clone https://github.com/kaiser-data/protean-mcp
+cd protean-mcp
+make dev        # installs protean-mcp + dev deps (pytest, ruff)
 make test       # run all tests
 make lint       # ruff lint check
 make format     # auto-format with ruff
@@ -67,7 +67,7 @@ test: add test_connect_returns_tool_list
 If you found a server that works well with Chameleon, open a "New Server" issue:
 - Server ID (e.g. `@modelcontextprotocol/server-filesystem`)
 - Transport type: `http` or `stdio`
-- Any error from `call()` or `morph()` you hit
+- Any error from `call()` or `mount()` you hit
 
 ## Project Structure
 
@@ -77,7 +77,7 @@ tests/
   conftest.py      # shared fixtures (mock HTTP, mock subprocess)
   test_transports.py
   test_registry.py
-  test_morph.py
+  test_morph.py  # tests mount/unmount helpers
   test_tools.py
   test_persistent.py
 docs/

@@ -28,7 +28,7 @@ Does the server need to stay alive between calls?
 ```python
 call("exa/exa", "web_search_exa", {"query": "AI news"})
 # or
-morph("exa/exa")  # auto-selects HTTPSSETransport
+mount("exa/exa")  # auto-selects HTTPSSETransport
 ```
 
 **Timeout:** 30s per call. Server may be cold-starting — retry once if timeout.
@@ -66,7 +66,7 @@ run("mcp-server-fetch", "fetch", {"url": "https://example.com"})
 **Example:**
 ```python
 connect("uvx voice-mode", name="voice")
-# Now use morph() or call voice-mode tools directly
+# Now use mount() or call voice-mode tools directly
 release("voice")  # kills process, removes from pool
 ```
 
@@ -76,7 +76,7 @@ release("voice")  # kills process, removes from pool
 
 | Scenario | Transport | Command |
 |----------|-----------|---------|
-| Smithery hosted API | HTTPSSETransport | `call()` / `morph()` automatic |
-| One-shot npm tool | StdioTransport | `call()` / `run()` / `morph()` automatic |
+| Smithery hosted API | HTTPSSETransport | `call()` / `mount()` automatic |
+| One-shot npm tool | StdioTransport | `call()` / `run()` / `mount()` automatic |
 | Audio/hardware tool | PersistentStdioTransport | `connect()` then `release()` |
 | Unknown server | Auto-detected | `call()` detects from registry |

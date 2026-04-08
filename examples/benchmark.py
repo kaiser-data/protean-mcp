@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chameleon MCP — Token Overhead Benchmark
+"""Protean MCP — Token Overhead Benchmark
 
 Measures actual token costs from registered schemas. No network access required.
 
@@ -68,7 +68,7 @@ def run_benchmark():
 
     w = 62
     print("=" * w)
-    print("  Chameleon MCP — Token Overhead Benchmark")
+    print("  Protean MCP — Token Overhead Benchmark")
     print("=" * w)
     print()
 
@@ -88,7 +88,7 @@ def run_benchmark():
 
     for n_servers in (2, 5, 10):
         baseline   = n_servers * _TYPICAL_TOOLS_PER_SERVER * _TYPICAL_TOKENS_PER_TOOL
-        # Chameleon exposes itself (lean or forge) + 1 morphed server at a time
+        # Protean MCP exposes itself (lean or forge) + 1 mounted server at a time
         with_lean  = lean_tokens  + _TYPICAL_TOOLS_PER_SERVER * _TYPICAL_TOKENS_PER_TOOL
         with_forge = forge_tokens + _TYPICAL_TOOLS_PER_SERVER * _TYPICAL_TOKENS_PER_TOOL
 

@@ -1,6 +1,6 @@
 """Chameleon Forge — full evaluation + crafting suite (all 17 tools).
 
-Equivalent to: CHAMELEON_TOOLS=all chameleon-mcp
+Equivalent to: CHAMELEON_TOOLS=all protean-mcp
 """
 
 import os
