@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/kaiser-data/protean-mcp/main/logo_protean-mcp.png" alt="Protean MCP" width="160" />
   <h1>🌊 Protean MCP</h1>
-  <p><strong>The shape-shifting MCP hub — mount into any server at runtime.<br/>Fluid. Adaptive. Built for agents that change form.</strong></p>
+  <p><strong>One MCP entry. 10,000+ servers on demand.<br/>Load only the tools you need. Switch instantly. No restarts.</strong></p>
 </div>
 
 [![PyPI](https://img.shields.io/pypi/v/protean-mcp?color=blue)](https://pypi.org/project/protean-mcp/)
@@ -12,26 +12,26 @@
 
 ---
 
-## What Protean MCP does
+## The problem with static MCP setups
 
-MCP servers are typically configured at startup — all tools loaded forever, restart required for any change. Protean MCP takes a different approach.
+Every server you add to your config loads all its tools at startup — and keeps them there, all session long. Whether your agent uses them or not.
 
-**One entry in your config. Any server, on demand, at runtime.**
+Five servers means 3,000–5,000 tokens of overhead on every request. Your agent sees 50+ tools and has to reason about all of them before it can act.
+
+**Protean MCP is one entry that replaces all of them.**
 
 ```
-search("web scraping")                            # discover
-mount("@modelcontextprotocol/server-puppeteer")   # inject tools live — no restart
-puppeteer_navigate(url="https://example.com")     # call them natively
-unmount()                                            # clean exit
+mount("brave-search", tools=["web_search"])  # only the tool you need
+# task done — switch instantly:
+unmount()
+mount("supabase")                            # different server, no restart
+unmount()
+mount("@modelcontextprotocol/server-github") # and again
 ```
 
-`mount()` registers a server's tools directly via FastMCP's live API — no wrapper, no indirection, no config edit. `unmount()` removes them cleanly. The whole session costs **7 tools and ~650 tokens overhead** ([measured](examples/benchmark.py)).
+One config entry. Any server across 7 registries. Load only the tools the current task needs — 2 out of 20 if that's all you need. Your agent stays focused and your costs stay low.
 
-Need only specific tools? Lean mount keeps overhead surgical:
-```
-mount("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file"])
-# only 2 tools appear instead of 10
-```
+Base overhead: **7 tools, ~650 tokens** ([measured](examples/benchmark.py)). Each mounted server adds only what you actually load.
 
 ---
 
@@ -39,14 +39,14 @@ mount("@modelcontextprotocol/server-filesystem", tools=["read_file", "write_file
 
 ### Adaptive agents
 
-An agent that loads all tools upfront burns tokens and flexibility. An agent that mounts on demand stays lean and adaptable:
+An agent that loads everything upfront burns tokens on tools it never calls — and makes worse decisions because it sees too many options at once. An agent that mounts on demand is leaner, faster, and more focused:
 
-- `mount()` switches the entire capability set in one call — ~650 tokens, no restart
-- Acquire a tool for the current task, unmount it, acquire the next
-- Chain across multiple servers in one session without touching config
-- `mount(server_id, tools=[...])` for surgical selection — only the tools actually needed
+- Mount only what the current task needs — switch to something else when it's done
+- `mount(server_id, tools=[...])` to cherry-pick — load 2 tools from a server that has 20
+- Chain across multiple servers in one session without touching config or restarting
+- Token overhead stays flat: ~650 base + only what you load
 
-Protean MCP is designed around the token budget of a real agent loop.
+Protean MCP is designed around the real economics of an agent loop.
 
 ### MCP developers
 
@@ -136,7 +136,7 @@ Works with Claude Desktop, Claude Code, Cursor, Cline, OpenClaw, Continue.dev, Z
 
 ## Server Sources
 
-Protean MCP searches across multiple registries — no single one required.
+Protean MCP searches across 7 registries in parallel — tens of thousands of servers, no single one required.
 
 | Registry | Auth | `registry=` value |
 |---|---|---|
@@ -340,7 +340,7 @@ Protean MCP re-reads `.env` on every call — which means adding a key instantly
 ```json
 {
   "mcpServers": {
-    "chameleon": { "command": "protean-mcp" }
+    "protean": { "command": "protean-mcp" }
   }
 }
 ```
@@ -350,7 +350,7 @@ Protean MCP re-reads `.env` on every call — which means adding a key instantly
 ```json
 {
   "mcpServers": {
-    "chameleon": {
+    "protean": {
       "command": "protean-mcp",
       "env": { "SMITHERY_API_KEY": "your-key" }
     }
