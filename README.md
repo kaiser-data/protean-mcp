@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo_protean-mcp.png" alt="Protean MCP" width="160" />
+  <img src="https://raw.githubusercontent.com/kaiser-data/protean-mcp/main/logo_protean-mcp.png" alt="Protean MCP" width="160" />
   <h1>🌊 Protean MCP</h1>
   <p><strong>The shape-shifting MCP hub — mount into any server at runtime.<br/>Fluid. Adaptive. Built for agents that change form.</strong></p>
 </div>
@@ -90,7 +90,7 @@ Both modes from the same package:
 ## How It Fits Together
 
 <div align="center">
-  <img src="docs/architecture.svg" alt="Protean MCP — lean profile" width="700"/>
+  <img src="https://raw.githubusercontent.com/kaiser-data/protean-mcp/main/docs/architecture.svg" alt="Protean MCP — lean profile" width="700"/>
 </div>
 
 `mount()` injects tools directly at runtime via FastMCP's live API. Token overhead stays flat regardless of how many servers you explore.
@@ -98,7 +98,7 @@ Both modes from the same package:
 Need the full evaluation suite? `protean-forge` adds execution, connection management, benchmarking, and tool crafting:
 
 <div align="center">
-  <img src="docs/architecture-forge.svg" alt="Protean Forge — extended suite" width="700"/>
+  <img src="https://raw.githubusercontent.com/kaiser-data/protean-mcp/main/docs/architecture-forge.svg" alt="Protean Forge — extended suite" width="700"/>
 </div>
 
 ---

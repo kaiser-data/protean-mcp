@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 ---
 
+## [0.7.2] — 2026-04-08
+
+### Fixed
+- README: absolute image URLs so logo and diagrams render on PyPI
+
+---
+
 ## [0.7.1] — 2026-04-08
 
 ### Changed
