@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 ---
 
+## [0.7.3] — 2026-04-08
+
+### Fixed
+- `status()` output header: "CHAMELEON MCP STATUS" → "PROTEAN MCP STATUS"
+
+---
+
 ## [0.7.2] — 2026-04-08
 
 ### Fixed

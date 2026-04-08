@@ -22,7 +22,7 @@ Do not skip tests. If a test fails, note why and continue to the next one.
 TEST 1 — Verify Chameleon is running
 Call: status()
 Expect:
-- Output starts with "CHAMELEON MCP STATUS"
+- Output starts with "PROTEAN MCP STATUS"
 - Shows "CURRENT FORM: base (no mount active)"
 - Shows PERFORMANCE STATS section
 

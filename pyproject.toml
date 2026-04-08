@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "protean-mcp"
-version = "0.7.2"
+version = "0.7.3"
 description = "The shape-shifting MCP hub — mount() into any MCP server at runtime. 7 registries. No restart."
 readme = "README.md"
 license = { text = "MIT" }

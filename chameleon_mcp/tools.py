@@ -1200,7 +1200,7 @@ async def status() -> str:
     current_form = session["current_form"]
     morphed = session["morphed_tools"]
 
-    lines = ["CHAMELEON MCP STATUS", ""]
+    lines = ["PROTEAN MCP STATUS", ""]
 
     if current_form:
         lines.append(f"CURRENT FORM: {current_form}")
