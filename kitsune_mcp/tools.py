@@ -119,10 +119,10 @@ async def _fetch_resource_docs(transport: "BaseTransport") -> str:
         return ""
 
 
-# Base tool names — used for collision detection in mount()
+# Base tool names — used for collision detection in receive()
 _BASE_TOOL_NAMES = {
     "search", "inspect", "call", "run", "fetch",
-    "skill", "key", "auto", "status", "mount", "unmount", "craft",
+    "skill", "key", "auto", "status", "receive", "cast_off", "craft",
     "connect", "release", "test", "bench", "setup",
 }
 
@@ -224,12 +224,12 @@ async def call(
     config: dict | None = None,
 ) -> str:
     """Call a tool on an MCP server. server_id optional when mounted — current form used.
-    After mount(): call('list_directory', arguments={'path': '/tmp'})
+    After receive(): call('list_directory', arguments={'path': '/tmp'})
     Direct:        call('list_directory', '@some-server', {'path': '/tmp'})"""
     if server_id is None:
         server_id = session.get("current_form")
         if not server_id:
-            return "Provide a server_id, or use mount() first to set a current form."
+            return "Provide a server_id, or use receive() first to set a current form."
     if arguments is None:
         arguments = {}
     if config is None:
@@ -537,8 +537,8 @@ async def auto(
 
 
 @mcp.tool()
-async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
-    """Become a server — inject its tools live. tools=[...] for lean mount (fewer tokens)."""
+async def receive(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
+    """Receive a server's form into Kitsune. The fox takes on the server's shape — its tools become available natively in the session. Use tools=[...] to receive only specific tools instead of everything."""
     # 1. Check pool connections first (friendly names from connect() take priority)
     pool_conn = None
     for _pk, conn in session["connections"].items():
@@ -573,7 +573,7 @@ async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) ->
         registered = _register_proxy_tools(server_id, raw_tools, transport, {}, _BASE_TOOL_NAMES, only)
 
         if not registered:
-            return f"No tools could be registered from '{server_id}'."
+            return f"No tools could be received from '{server_id}'."
 
         # Register resources + prompts (best-effort — pool transports support both)
         morphed_resources: list[str] = []
@@ -627,7 +627,7 @@ async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) ->
         extra_note = f" + {', '.join(extras)}" if extras else ""
 
         lines = [
-            f"Morphed into '{server_id}' (pool connection){lean} — {len(registered)} tool(s){extra_note} registered:",
+            f"Received form of '{server_id}' (pool connection){lean} — {len(registered)} tool(s){extra_note} registered:",
             *[f"  {t}" for t in registered],
         ]
         if morphed_resources:
@@ -652,7 +652,7 @@ async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) ->
     resolved_config, missing = _resolve_config(srv.credentials, {})
     if missing:
         creds_msg = _credentials_guide(server_id, srv.credentials, resolved_config)
-        return f"Cannot morph into '{server_id}' — missing credentials:\n\n{creds_msg}"
+        return f"Cannot receive form of '{server_id}' — missing credentials:\n\n{creds_msg}"
 
     # 4. Build transport and fetch tool list
     if srv.transport == "stdio":
@@ -682,7 +682,7 @@ async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) ->
     registered = _register_proxy_tools(server_id, tool_schemas, transport, resolved_config, _BASE_TOOL_NAMES, only)
 
     if not registered:
-        return f"No tools could be registered from '{server_id}'."
+        return f"No tools could be received from '{server_id}'."
 
     # 7. Register resources + prompts (best-effort — only stdio transports support these)
     morphed_resources: list[str] = []
@@ -745,7 +745,7 @@ async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) ->
     extra_note = f" + {', '.join(extras)}" if extras else ""
 
     lines = [
-        f"Morphed into '{server_id}'{lean} — {len(registered)} tool(s){extra_note} registered:",
+        f"Received form of '{server_id}'{lean} — {len(registered)} tool(s){extra_note} registered:",
         *[f"  {t}" for t in registered],
     ]
     if morphed_resources:
@@ -765,8 +765,8 @@ async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) ->
 
 
 @mcp.tool()
-async def unmount(ctx: Context, release: bool = False) -> str:
-    """Remove mounted tools. release=True kills the process and frees RAM immediately."""
+async def cast_off(ctx: Context, release: bool = False) -> str:
+    """Cast off the currently received form. Removes all tools that were received, returning Kitsune to its true shape. Pass release=True to also kill the underlying server process and free its memory."""
     has_tools = bool(session["morphed_tools"])
     has_resources = bool(session.get("morphed_resources"))
     has_prompts = bool(session.get("morphed_prompts"))
@@ -810,9 +810,33 @@ async def unmount(ctx: Context, release: bool = False) -> str:
             _process_pool.pop(pool_key, None)
             killed.append(entry.name or entry.install_cmd[0])
         if killed:
-            return f"Shed '{form}'. Removed: {', '.join(removed)}{extra_note}. Released: {', '.join(killed)}"
+            return f"Cast off '{form}'. Removed: {', '.join(removed)}{extra_note}. Released: {', '.join(killed)}"
 
-    return f"Shed '{form}'. Removed: {', '.join(removed)}{extra_note}"
+    return f"Cast off '{form}'. Removed: {', '.join(removed)}{extra_note}"
+
+
+# ── Deprecated aliases (Python-level only — NOT registered as MCP tools) ──────
+
+async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
+    """Deprecated: use receive() instead. Will be removed in a future version."""
+    import warnings
+    warnings.warn(
+        "mount() is deprecated, use receive() instead. It will be removed in a future version.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return await receive(server_id, ctx, tools)
+
+
+async def unmount(ctx: Context, release: bool = False) -> str:
+    """Deprecated: use cast_off() instead. Will be removed in a future version."""
+    import warnings
+    warnings.warn(
+        "unmount() is deprecated, use cast_off() instead. It will be removed in a future version.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return await cast_off(ctx, release)
 
 
 @mcp.tool()
@@ -825,7 +849,7 @@ async def craft(
     method: str = "POST",
     headers: dict | None = None,
 ) -> str:
-    """Register a custom tool backed by your HTTP endpoint — live immediately. POST=JSON body, GET=query params. unmount() removes it."""
+    """Register a custom tool backed by your HTTP endpoint — live immediately. POST=JSON body, GET=query params. cast_off() removes it."""
     import inspect as _inspect
 
     if not name or not name.replace("_", "").isalnum():
@@ -890,7 +914,7 @@ async def craft(
     return (
         f"✓ Tool '{name}' registered — {_method} {url}\n"
         f"Params: {param_list}\n\n"
-        f"Call it directly, or unmount() to remove it."
+        f"Call it directly, or cast_off() to remove it."
     )
 
 
@@ -1072,7 +1096,7 @@ async def test(server_id: str, level: str = "basic") -> str:
         score += 10
         checks.append("✅ No name collisions with Chameleon base tools (+10)")
     else:
-        checks.append(f"⚠️  Name collisions: {', '.join(collisions)} (0) — will be prefixed on mount()")
+        checks.append(f"⚠️  Name collisions: {', '.join(collisions)} (0) — will be prefixed on receive()")
 
     # Check 7: Live tool calls (full mode only, 10 pts per tool, max 5 tools)
     if level == "full" and tools:

@@ -7,9 +7,9 @@ All logic lives in the kitsune_mcp package. This file:
   4. Re-exports public names so existing tests (from server import ...) continue to work.
 
 KITSUNE_TOOLS env var controls which tools are registered:
-  (not set)                     — lean profile: mount, unmount, search, inspect, key, status, call
+  (not set)                     — lean profile: receive, cast_off, search, inspect, key, status, call
   KITSUNE_TOOLS=all           — all 17 tools (forge / evaluator mode)
-  KITSUNE_TOOLS=mount,unmount — exactly those tools
+  KITSUNE_TOOLS=receive,cast_off — exactly those tools
 """
 
 import os
@@ -87,7 +87,8 @@ from kitsune_mcp.tools import (  # noqa: E402, F401
     fetch,
     inspect,
     key,
-    mount,
+    cast_off,
+    receive,
     release,
     run,
     search,
@@ -95,7 +96,8 @@ from kitsune_mcp.tools import (  # noqa: E402, F401
     skill,
     status,
     test,
-    unmount,
+    mount,    # deprecated alias — kept for programmatic callers
+    unmount,  # deprecated alias — kept for programmatic callers
 )
 from kitsune_mcp.transport import (  # noqa: E402, F401
     BaseTransport,
@@ -125,7 +127,7 @@ from kitsune_mcp.utils import (  # noqa: E402, F401
 # ── Tool profile selection ────────────────────────────────────────────────────
 # All tools registered above via @mcp.tool(). Prune to the requested profile.
 
-_LEAN_TOOLS = {"mount", "unmount", "search", "inspect", "key", "status", "call"}
+_LEAN_TOOLS = {"receive", "cast_off", "search", "inspect", "key", "status", "call"}
 _KITSUNE_TOOLS_ENV = os.getenv("KITSUNE_TOOLS", "")
 
 if _KITSUNE_TOOLS_ENV.lower() == "all":
