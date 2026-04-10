@@ -1,6 +1,6 @@
 # Contributing to Kitsune MCP
 
-Thank you for helping make Chameleon better! This guide gets you to a working dev setup in under 5 minutes.
+Thank you for helping make Kitsune better! This guide gets you to a working dev setup in under 5 minutes.
 
 ## Quick Setup
 
@@ -64,10 +64,10 @@ test: add test_connect_returns_tool_list
 
 ## Adding a New Server Integration
 
-If you found a server that works well with Chameleon, open a "New Server" issue:
+If you found a server that works well with Kitsune, open a "New Server" issue:
 - Server ID (e.g. `@modelcontextprotocol/server-filesystem`)
 - Transport type: `http` or `stdio`
-- Any error from `call()` or `receive()` you hit
+- Any error from `call()` or `shapeshift()` you hit
 
 ## Project Structure
 
@@ -77,7 +77,7 @@ tests/
   conftest.py      # shared fixtures (mock HTTP, mock subprocess)
   test_transports.py
   test_registry.py
-  test_morph.py  # tests mount/unmount helpers
+  test_shapeshift.py  # tests shapeshift/shiftback helpers
   test_tools.py
   test_persistent.py
 docs/

@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## [0.8.1] — 2026-04-11
+
+### Fixed
+- **Smithery transport rewritten** — replaced dead `server.smithery.ai/{name}/mcp?config=b64` URL
+  with the new Smithery Connect API: namespace → service token → connection upsert →
+  `api.smithery.ai/connect/{ns}/{id}/mcp`. Fixes 400 "Server configuration is incomplete"
+  and "Invalid token" errors from `run.tools`.
+- **Registry** now reads `deploymentUrl` from Smithery API response instead of reconstructing stale URLs
+- **`_resolve_config`** always writes all credential keys (`None` → JSON `null`) so Smithery's
+  schema validator sees all expected keys even when optional vars are unset
+
+### Changed
+- `morph.py` → `shapeshift.py` (rename complete; `morph.py` deleted)
+- Session keys: `morphed_tools/resources/prompts` → `shapeshift_tools/resources/prompts`
+- `.chameleon` directory references → `.kitsune` in `credentials.py`, `session.py`, `transport.py`
+- Docker label: `chameleon-mcp=1` → `kitsune-mcp=1`
+
+---
+
 ## [0.8.0] — 2026-04-10
 
 ### Breaking Changes

@@ -25,7 +25,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Lint with ruff
-        run: ruff check server.py tests/
+        run: ruff check server.py server_forge.py kitsune_mcp/ tests/
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
