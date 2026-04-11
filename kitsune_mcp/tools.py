@@ -564,6 +564,18 @@ def _infer_install_cmd(server_id: str) -> list[str]:
     return ["uvx", server_id]
 
 
+def _local_uninstall_cmd(install_cmd: list[str]) -> list[str] | None:
+    """Return an uninstall command for a locally cached package, or None if not applicable.
+    uvx <pkg>    → uv tool uninstall <pkg>
+    npx -y <pkg> → None (npx cache is ephemeral; no targeted uninstall)
+    """
+    if not install_cmd:
+        return None
+    if install_cmd[0] == "uvx" and len(install_cmd) >= 2:
+        return ["uv", "tool", "uninstall", install_cmd[-1]]
+    return None
+
+
 @mcp.tool()
 async def shapeshift(
     server_id: str,
@@ -732,7 +744,12 @@ async def shapeshift(
         srv = dataclasses.replace(srv, transport="stdio")
         if not srv.install_cmd:
             srv = dataclasses.replace(srv, install_cmd=_infer_install_cmd(server_id))
-    elif source == "official" and srv.source not in ("official", "mcpregistry"):
+        # Record so shiftback(uninstall=True) knows what to clean up
+        session["current_form_local_install"] = {"cmd": srv.install_cmd, "package": server_id}
+    else:
+        session["current_form_local_install"] = None
+
+    if source == "official" and srv.source not in ("official", "mcpregistry"):
         return (
             f"No official/verified listing found for '{server_id}' (resolved source: {srv.source}).\n"
             f"Try: shapeshift(\"{server_id}\") for auto, or shapeshift(\"{server_id}\", source=\"local\")."
@@ -857,8 +874,13 @@ async def shapeshift(
 
 
 @mcp.tool()
-async def shiftback(ctx: Context, kill: bool = False) -> str:
-    """Shift back to Kitsune's true form. Removes all tools that were shapeshifted in, returning to base shape. Pass kill=True to also terminate the underlying server process and free its memory."""
+async def shiftback(ctx: Context, kill: bool = False, uninstall: bool = False) -> str:
+    """Shift back to Kitsune's true form. Removes all shapeshifted tools.
+
+    kill=True      also terminate the underlying server process
+    uninstall=True also uninstall the locally installed package (implies kill=True;
+                   only applies when shapeshifted via source='local')
+    """
     has_tools = bool(session["shapeshift_tools"])
     has_resources = bool(session.get("shapeshift_resources"))
     has_prompts = bool(session.get("shapeshift_prompts"))
@@ -866,6 +888,7 @@ async def shiftback(ctx: Context, kill: bool = False) -> str:
         return "Already in base form."
 
     form = session["current_form"]
+    local_install = session.pop("current_form_local_install", None)
     # Snapshot counts before _do_shed() clears the lists
     n_res = len(session.get("shapeshift_resources", []))
     n_prompts = len(session.get("shapeshift_prompts", []))
@@ -887,7 +910,9 @@ async def shiftback(ctx: Context, kill: bool = False) -> str:
         extras.append(f"{n_prompts} prompt(s)")
     extra_note = f", {', '.join(extras)}" if extras else ""
 
-    if kill and form:
+    result_lines = [f"Shifted back from '{form}'. Removed: {', '.join(removed)}{extra_note}"]
+
+    if (kill or uninstall) and form:
         # Use the exact pool key stored at shapeshift() time — no fragile string matching needed
         exact_key = session.pop("current_form_pool_key", None)
         killed = []
@@ -902,9 +927,34 @@ async def shiftback(ctx: Context, kill: bool = False) -> str:
             _process_pool.pop(pool_key, None)
             killed.append(entry.name or entry.install_cmd[0])
         if killed:
-            return f"Shifted back from '{form}'. Removed: {', '.join(removed)}{extra_note}. Released: {', '.join(killed)}"
+            result_lines.append(f"Released: {', '.join(killed)}")
 
-    return f"Shifted back from '{form}'. Removed: {', '.join(removed)}{extra_note}"
+    if uninstall and local_install:
+        uninstall_cmd = _local_uninstall_cmd(local_install["cmd"])
+        pkg = local_install["package"]
+        if uninstall_cmd:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *uninstall_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+                if proc.returncode == 0:
+                    result_lines.append(f"Uninstalled: {pkg}")
+                else:
+                    err = stderr.decode().strip()[:120]
+                    result_lines.append(f"Uninstall failed ({pkg}): {err}")
+            except Exception as e:
+                result_lines.append(f"Uninstall error ({pkg}): {e}")
+        else:
+            # npx packages are cached, not permanently installed — no action needed
+            result_lines.append(f"Note: '{pkg}' was run via npx (cached, not permanently installed — cache expires automatically)")
+    elif local_install and not uninstall:
+        pkg = local_install["package"]
+        result_lines.append(f"Local package '{pkg}' is still cached. To remove: shiftback(uninstall=True)")
+
+    return "\n".join(result_lines)
 
 
 # ── Deprecated aliases (Python-level only — NOT registered as MCP tools) ──────

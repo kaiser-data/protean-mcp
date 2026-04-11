@@ -13,6 +13,7 @@ _session: dict = {
     "crafted_tools": {},         # name -> {url, method, description, params, headers}
     "current_form": None,        # server_id currently shapeshifted into
     "current_form_pool_key": None,  # exact _process_pool key for shiftback(kill=True)
+    "current_form_local_install": None,  # {"cmd": [...], "package": str} when source="local"
     "connections": {},        # persistent connections: {pool_key: {name, command, pid, ...}}
     "stats": {
         "total_calls": 0,
