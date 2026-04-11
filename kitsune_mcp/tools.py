@@ -31,18 +31,10 @@ from kitsune_mcp.credentials import (
     _credentials_guide,
     _credentials_inspect_block,
     _registry_headers,
-    _reload_dotenv,
     _resolve_config,
     _save_to_env,
     _smithery_available,
     _to_env_var,
-)
-from kitsune_mcp.shapeshift import (
-    _do_shed,
-    _fetch_tools_list,
-    _register_proxy_prompts,
-    _register_proxy_resources,
-    _register_proxy_tools,
 )
 from kitsune_mcp.probe import _doc_uri_priority, _format_setup_guide, _probe_requirements
 from kitsune_mcp.registry import (
@@ -53,6 +45,13 @@ from kitsune_mcp.registry import (
     _registry,
 )
 from kitsune_mcp.session import _save_skills, session
+from kitsune_mcp.shapeshift import (
+    _do_shed,
+    _fetch_tools_list,
+    _register_proxy_prompts,
+    _register_proxy_resources,
+    _register_proxy_tools,
+)
 from kitsune_mcp.transport import (
     BaseTransport,
     DockerTransport,
@@ -136,8 +135,8 @@ async def search(query: str, registry: str = "all", limit: int = 5) -> str:
     elif registry == "pypi":
         reg = PyPIRegistry()
     elif registry in ("official", "mcpregistry", "glama"):
-        from kitsune_mcp.registry import GlamaRegistry, McpRegistryIO
         from kitsune_mcp.official_registry import OfficialMCPRegistry
+        from kitsune_mcp.registry import GlamaRegistry, McpRegistryIO
         reg = {"official": OfficialMCPRegistry(), "mcpregistry": McpRegistryIO(), "glama": GlamaRegistry()}[registry]
     else:
         reg = _registry

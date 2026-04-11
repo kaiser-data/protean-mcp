@@ -620,6 +620,7 @@ class TestMultiRegistrySearchDedup:
 
     async def test_same_server_from_two_registries_deduplicated(self):
         from unittest.mock import AsyncMock
+
         from server import MultiRegistry
 
         official_srv = self._srv("filesystem", "filesystem", source="official")
@@ -640,6 +641,7 @@ class TestMultiRegistrySearchDedup:
 
     async def test_results_sorted_by_relevance(self):
         from unittest.mock import AsyncMock
+
         from server import MultiRegistry
 
         weak = self._srv("tools-pack", "tools-pack")
@@ -657,6 +659,7 @@ class TestMultiRegistrySearchDedup:
 
     async def test_exception_from_one_registry_skipped(self):
         from unittest.mock import AsyncMock
+
         from server import MultiRegistry
 
         good = self._srv("brave-search", "brave-search", source="npm")

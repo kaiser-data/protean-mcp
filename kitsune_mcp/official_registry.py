@@ -3,7 +3,6 @@
 Uses a hardcoded seed list of known-stable servers (no network required) plus an
 optional live fetch from the GitHub API to discover newer additions (24h TTL cache).
 """
-import time
 
 from kitsune_mcp.constants import (
     OFFICIAL_REGISTRY_CACHE_TTL,

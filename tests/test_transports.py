@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import DockerTransport, HTTPSSETransport, StdioTransport, WebSocketTransport, _validate_install_cmd
+from server import (
+    DockerTransport,
+    HTTPSSETransport,
+    StdioTransport,
+    WebSocketTransport,
+    _validate_install_cmd,
+)
 
 # ---------------------------------------------------------------------------
 # StdioTransport tests
@@ -59,7 +65,7 @@ class TestHTTPSSETransport:
         """_parse_sse correctly parses SSE data lines."""
         import httpx
         import respx
-        import kitsune_mcp.transport as _t
+
 
         endpoint = "https://api.smithery.ai/connect/ns/kitsune-test-org-test-server/mcp"
         payload = {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "t", "version": "1"}}}
@@ -168,7 +174,7 @@ class TestDockerTransport:
         assert "-i" in cmd
         assert "--memory" in cmd
         assert "512m" in cmd
-        assert "mcp/my-image:latest" == cmd[-1]
+        assert cmd[-1] == "mcp/my-image:latest"
 
     def test_build_cmd_custom_memory(self):
         t = DockerTransport("mcp/image")
@@ -273,6 +279,7 @@ class TestValidateInstallCmd:
     async def test_persistent_transport_raises_runtime_error(self):
         """PersistentStdioTransport._start_process raises RuntimeError on invalid cmd."""
         import pytest
+
         from server import PersistentStdioTransport
         transport = PersistentStdioTransport(["../../evil"])
         with pytest.raises(RuntimeError, match="Path traversal"):

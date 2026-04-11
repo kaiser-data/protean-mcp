@@ -514,15 +514,16 @@ class TestMidCallReconnect:
     """PersistentStdioTransport retries once if process dies during a call."""
 
     def _pool_entry(self, proc):
-        from server import _PoolEntry
-        import asyncio
         import time
+
+        from server import _PoolEntry
         return _PoolEntry(proc=proc, install_cmd=["echo"], started_at=time.monotonic())
 
     async def test_broken_pipe_triggers_reconnect_and_succeeds(self):
         """BrokenPipeError on stdin.drain() causes transparent reconnect + retry."""
         import json as _json
-        from unittest.mock import AsyncMock, MagicMock, patch, call as _call
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from server import PersistentStdioTransport, _process_pool
 
         # Dead process (raises BrokenPipeError on drain)
@@ -569,6 +570,7 @@ class TestMidCallReconnect:
         """None response + dead process triggers reconnect."""
         import json as _json
         from unittest.mock import AsyncMock, MagicMock, patch
+
         from server import PersistentStdioTransport, _process_pool
 
         # Proc dies after write (returncode set before read completes)

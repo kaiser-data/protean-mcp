@@ -9,6 +9,7 @@ import urllib.parse
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+import kitsune_mcp.credentials as _creds
 from kitsune_mcp.constants import (
     MCP_CLIENT_INFO,
     MCP_PROTOCOL_VERSION,
@@ -20,7 +21,6 @@ from kitsune_mcp.constants import (
     TIMEOUT_STDIO_INIT,
     TIMEOUT_STDIO_TOOL,
 )
-import kitsune_mcp.credentials as _creds
 from kitsune_mcp.credentials import SMITHERY_API_KEY, _credentials_guide, _resolve_config
 from kitsune_mcp.registry import SmitheryRegistry
 from kitsune_mcp.session import session
@@ -31,7 +31,6 @@ from kitsune_mcp.utils import (
     _get_http_client,
     _truncate,
 )
-
 
 # ---------------------------------------------------------------------------
 # Install command validation
@@ -217,7 +216,7 @@ async def _smithery_service_token() -> str:
             data["expiresAt"].replace("Z", "+00:00")
         )
         ttl = (
-            expires_at - datetime.datetime.now(datetime.timezone.utc)
+            expires_at - datetime.datetime.now(datetime.UTC)
         ).total_seconds()
         _smithery_token_expires = now + max(ttl - 300, 60)  # refresh 5 min early
     except Exception:
