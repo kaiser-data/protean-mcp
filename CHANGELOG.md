@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 ---
 
+## [0.8.4] — 2026-04-11
+
+### Fixed
+- **Circular import** between `registry.py` and `official_registry.py` — `_registry` is now
+  a lazy proxy; `MultiRegistry()` is deferred until first use
+- **Ruff lint** — 64 errors resolved (import ordering, unused vars, SIM105, B023, UP046);
+  CI pipeline is now fully green on Python 3.12 and 3.13
+
+### Added
+- Codecov coverage reporting (badge in README, uploads on every CI run)
+- Automated GitHub Releases with CHANGELOG excerpt on tag push
+- Glama registry listing (`glama.json`)
+- Dependabot for weekly pip + GitHub Actions updates
+- SECURITY.md and PR template
+
+---
+
 ## [0.8.2] — 2026-04-11
 
 ### Added
