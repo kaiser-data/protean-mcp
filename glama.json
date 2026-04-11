@@ -1,0 +1,12 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "name": "Kitsune MCP",
+  "description": "The shape-shifting MCP hub — shapeshift() into 10,000+ servers at runtime. One entry point, no restarts, 7 registries.",
+  "license": "MIT",
+  "homepage": "https://github.com/kaiser-data/kitsune-mcp",
+  "maintainers": [
+    {
+      "github": "kaiser-data"
+    }
+  ]
+}

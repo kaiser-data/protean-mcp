@@ -1,6 +1,6 @@
 # Tools Reference
 
-All 15 Kitsune MCP tools with parameters, return format, and examples.
+All Kitsune MCP tools with parameters, return format, and examples.
 
 ---
 
@@ -89,27 +89,27 @@ fetch("https://news.ycombinator.com", intent="top AI stories today")
 
 ## Mounting Tools
 
-### `receive(server_id)`
+### `shapeshift(server_id)`
 
 Take a server's form — register its tools directly in your tool list. Requires FastMCP context.
 
 ```python
-receive("exa/exa")
+shapeshift("exa/exa")
 # → Tools appear: web_search_exa, find_similar_exa, ...
 # Call them directly now
 web_search_exa(query="MCP servers")
 ```
 
-**Note:** Automatically unmounts previous form before mounting.
+**Note:** Automatically reverts previous form before shapeshifting.
 
 ---
 
-### `cast_off()`
+### `shiftback()`
 
 Drop current form, remove all mounted tools, return to base Kitsune MCP.
 
 ```python
-cast_off()
+shiftback()
 # → Mounted tools removed from tool list
 ```
 

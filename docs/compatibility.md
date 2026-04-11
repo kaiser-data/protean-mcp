@@ -15,16 +15,16 @@ Kitsune MCP sends MCP notifications when the tool/resource/prompt list changes �
 
 **Legend:** ✅ tested and working — ❌ tested, not working — ? untested
 
-## What Chameleon sends
+## What Kitsune sends
 
 | Event | Notification | When |
 |-------|-------------|------|
-| `receive()` succeeds | `notifications/tools/list_changed` | Always (at least 1 tool registered) |
-| `receive()` registers resources | `notifications/resources/list_changed` | Only if ≥1 resource proxied |
-| `receive()` registers prompts | `notifications/prompts/list_changed` | Only if ≥1 prompt proxied |
-| `cast_off()` | `notifications/tools/list_changed` | Always |
-| `cast_off()` after mounted resources | `notifications/resources/list_changed` | Only if resources were present |
-| `cast_off()` after mounted prompts | `notifications/prompts/list_changed` | Only if prompts were present |
+| `shapeshift()` succeeds | `notifications/tools/list_changed` | Always (at least 1 tool registered) |
+| `shapeshift()` registers resources | `notifications/resources/list_changed` | Only if ≥1 resource proxied |
+| `shapeshift()` registers prompts | `notifications/prompts/list_changed` | Only if ≥1 prompt proxied |
+| `shiftback()` | `notifications/tools/list_changed` | Always |
+| `shiftback()` after mounted resources | `notifications/resources/list_changed` | Only if resources were present |
+| `shiftback()` after mounted prompts | `notifications/prompts/list_changed` | Only if prompts were present |
 | `craft()` | `notifications/tools/list_changed` | Always |
 
 Notification failures are silently suppressed — Chameleon continues to work even if the client doesn't support notifications.
@@ -34,13 +34,13 @@ Notification failures are silently suppressed — Chameleon continues to work ev
 To fill in missing rows, run the following steps in your client and record the result:
 
 1. Connect to `kitsune-mcp` (lean profile)
-2. Call `receive("@modelcontextprotocol/server-filesystem")` — verify filesystem tools appear
+2. Call `shapeshift("@modelcontextprotocol/server-filesystem")` — verify filesystem tools appear
 3. Call any filesystem tool (e.g. `list_directory(path="/tmp")`) — verify it works
-4. Call `cast_off()` — verify filesystem tools disappear
+4. Call `shiftback()` — verify filesystem tools disappear
 5. Check whether each step required a manual refresh or happened automatically
 
 Open a PR to update this table with your findings, or file an issue with your test results.
 
 ## Fallback behaviour
 
-If a client doesn't support notifications, tools still work correctly — the client just won't auto-refresh its tool list. Users may need to manually restart or refresh to see the updated tool list after `receive()` / `cast_off()`.
+If a client doesn't support notifications, tools still work correctly — the client just won't auto-refresh its tool list. Users may need to manually restart or refresh to see the updated tool list after `shapeshift()` / `shiftback()`.

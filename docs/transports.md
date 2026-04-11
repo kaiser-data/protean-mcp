@@ -1,6 +1,6 @@
 # Transports Guide
 
-Chameleon supports three transport types. Here's when to use each.
+Kitsune MCP supports three transport types. Here's when to use each.
 
 ## Decision Tree
 
@@ -28,7 +28,7 @@ Does the server need to stay alive between calls?
 ```python
 call("exa/exa", "web_search_exa", {"query": "AI news"})
 # or
-receive("exa/exa")  # auto-selects HTTPSSETransport
+shapeshift("exa/exa")  # auto-selects HTTPSSETransport
 ```
 
 **Timeout:** 30s per call. Server may be cold-starting — retry once if timeout.
@@ -66,7 +66,7 @@ run("mcp-server-fetch", "fetch", {"url": "https://example.com"})
 **Example:**
 ```python
 connect("uvx voice-mode", name="voice")
-# Now use receive() or call voice-mode tools directly
+# Now use shapeshift() or call voice-mode tools directly
 release("voice")  # kills process, removes from pool
 ```
 
@@ -76,7 +76,7 @@ release("voice")  # kills process, removes from pool
 
 | Scenario | Transport | Command |
 |----------|-----------|---------|
-| Smithery hosted API | HTTPSSETransport | `call()` / `receive()` automatic |
+| Smithery hosted API | HTTPSSETransport | `call()` / `shapeshift()` automatic |
 | One-shot npm tool | StdioTransport | `call()` / `run()` / `receive()` automatic |
 | Audio/hardware tool | PersistentStdioTransport | `connect()` then `release()` |
 | Unknown server | Auto-detected | `call()` detects from registry |

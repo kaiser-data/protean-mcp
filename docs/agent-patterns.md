@@ -2,7 +2,7 @@
 
 Common patterns for AI agents using Kitsune MCP.
 
-## Pattern 1: Search → Quality Gate → Mount
+## Pattern 1: Search → Quality Gate → Shapeshift
 
 Validate a server before committing to it:
 
@@ -14,30 +14,30 @@ search("web scraping", limit=5)
 score = test("exa/exa")
 # → Score: 85/100 (Good) — proceed
 
-# Step 3: Mount only if quality is acceptable
-receive("exa/exa")
+# Step 3: Shapeshift only if quality is acceptable
+shapeshift("exa/exa")
 web_search_exa(query="latest Python news")
 ```
 
-## Pattern 2: Chain Morphs
+## Pattern 2: Chain Shapeshifts
 
-Mount into multiple servers in sequence for a multi-step task:
+Shapeshift into multiple servers in sequence for a multi-step task:
 
 ```python
 # Step 1: Research
-receive("exa/exa")
+shapeshift("exa/exa")
 results = web_search_exa(query="MCP server list 2025")
-cast_off()
+shiftback()
 
 # Step 2: Fetch and extract
-receive("fetch-mcp/fetch-mcp")
+shapeshift("fetch-mcp/fetch-mcp")
 content = fetch_page(url="https://example.com/mcp-servers")
-cast_off()
+shiftback()
 
 # Step 3: Write output
-receive("@modelcontextprotocol/server-filesystem")
+shapeshift("@modelcontextprotocol/server-filesystem")
 write_file(path="/tmp/report.md", content=f"# Research\n{results}\n\n{content}")
-cast_off()
+shiftback()
 ```
 
 ## Pattern 3: Hardware Pipeline
@@ -48,21 +48,21 @@ Audio processing with persistent connections:
 # Connect audio server once
 connect("uvx voice-mode", name="audio", timeout=30)
 
-# Mounting uses the persistent process
-receive("voice-mode")
+# Shapeshift uses the persistent process
+shapeshift("voice-mode")
 
 # Pipeline: listen → process → speak
 transcript = listen(duration=10)
 # (call other tools to process transcript)
 speak(text=f"I heard: {transcript}")
 
-cast_off()
+shiftback()
 release("audio")
 ```
 
 ## Pattern 4: Auto-Discovery with Fallback
 
-Let Chameleon pick the best server, with a manual fallback:
+Let Kitsune pick the best server, with a manual fallback:
 
 ```python
 # Try auto-discovery first
@@ -84,10 +84,10 @@ bench("exa/exa", "web_search_exa", {"query": "test"}, iterations=3)
 
 # If p95 < 1000ms, proceed with batch
 queries = ["AI news", "Python MCP", "FastAPI tutorial"]
-receive("exa/exa")
+shapeshift("exa/exa")
 for q in queries:
     web_search_exa(query=q)
-cast_off()
+shiftback()
 ```
 
 ## Pattern 6: Multi-Registry Discovery
@@ -103,19 +103,19 @@ inspect(smithery_results[0].id)
 inspect(npm_results[0].id)
 
 # Pick the one with better tooling
-receive("@modelcontextprotocol/server-filesystem")
+shapeshift("@modelcontextprotocol/server-filesystem")
 ```
 
 ## Anti-Patterns to Avoid
 
-### Don't mount without shedding
+### Don't shapeshift without shiftback
 ```python
-receive("server-a")
-receive("server-b")  # ✓ Auto-sheds server-a first
-# But explicit cast_off() is clearer:
-receive("server-a")
-cast_off()
-receive("server-b")
+shapeshift("server-a")
+shapeshift("server-b")  # ✓ Auto-reverts server-a first
+# But explicit shiftback() is clearer:
+shapeshift("server-a")
+shiftback()
+shapeshift("server-b")
 ```
 
 ### Don't use call() for hardware tools
@@ -136,11 +136,11 @@ release("voice")
 # ❌ Process leaks
 connect("uvx voice-mode", name="voice")
 # ... work ...
-cast_off()   # only removes mount, doesn't kill process!
+shiftback()   # only removes form, doesn't kill process!
 
 # ✓ Always release hardware connections
 connect("uvx voice-mode", name="voice")
 # ... work ...
-cast_off()
+shiftback()
 release("voice")
 ```

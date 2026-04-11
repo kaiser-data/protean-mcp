@@ -1,28 +1,29 @@
-# Quickstart — First Mount in 2 Minutes
+# Quickstart — First Shapeshift in 2 Minutes
 
 ## 1. Install
 
 ```bash
-pip install kitsune-mcp
-```
+# Recommended — no pip needed, runs in an isolated env:
+uvx kitsune-mcp
 
-Or from source:
-```bash
-git clone https://github.com/kaiser-data/kitsune-mcp
-cd kitsune-mcp
-pip install -e .
+# Or install globally:
+pip install kitsune-mcp
+
+# Or via npm:
+npx kitsune-mcp
 ```
 
 ## 2. Add to Claude Desktop
 
-Add this to your `mcp.json` (usually at `~/Library/Application Support/Claude/claude_desktop_config.json`):
+Add this to your `claude_desktop_config.json`
+(usually at `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "chameleon": {
-      "command": "python",
-      "args": ["/path/to/kitsune-mcp/server.py"],
+    "kitsune": {
+      "command": "uvx",
+      "args": ["kitsune-mcp"],
       "env": {
         "SMITHERY_API_KEY": "your-key-here"
       }
@@ -33,9 +34,9 @@ Add this to your `mcp.json` (usually at `~/Library/Application Support/Claude/cl
 
 Get a free Smithery API key at [smithery.ai/account/api-keys](https://smithery.ai/account/api-keys).
 
-> **No API key?** Kitsune MCP still works — it falls back to npm registry search. You'll have access to hundreds of npm-published MCP servers.
+> **No API key?** Kitsune still works — it falls back to npm registry search. You'll have access to hundreds of npm-published MCP servers.
 
-## 3. Restart Claude and try your first mount
+## 3. Restart Claude and try your first shapeshift
 
 In Claude, type:
 
@@ -46,7 +47,7 @@ search("web search")
 Pick a server from the results, then:
 
 ```
-receive("exa/exa")
+shapeshift("exa/exa")
 ```
 
 Now call its tools directly — they appear in your tool list instantly:
@@ -55,15 +56,14 @@ Now call its tools directly — they appear in your tool list instantly:
 web_search_exa(query="latest AI news")
 ```
 
-Done! To go back to base form:
+Done! To return to base form:
 
 ```
-cast_off()
+shiftback()
 ```
 
 ## Next Steps
 
-- [Tools Reference](tools.md) — all 15 tools with examples
+- [Tools Reference](tools.md) — all tools with examples
 - [Transports Guide](transports.md) — when to use HTTP vs stdio vs persistent
-- [Hardware Setup](hardware.md) — connect audio/hardware servers
-- [Agent Patterns](agent-patterns.md) — chain mounts, quality gates, pipelines
+- [Agent Patterns](agent-patterns.md) — chain shapeshifts, quality gates, pipelines

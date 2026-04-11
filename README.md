@@ -8,6 +8,7 @@
 [![PyPI](https://img.shields.io/pypi/v/kitsune-mcp?color=blue)](https://pypi.org/project/kitsune-mcp/)
 [![Python](https://img.shields.io/pypi/pyversions/kitsune-mcp)](https://pypi.org/project/kitsune-mcp/)
 [![CI](https://github.com/kaiser-data/kitsune-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/kaiser-data/kitsune-mcp/actions)
+[![Coverage](https://codecov.io/gh/kaiser-data/kitsune-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/kaiser-data/kitsune-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Smithery](https://smithery.ai/badge/@kaiser-data/kitsune-mcp)](https://smithery.ai/server/@kaiser-data/kitsune-mcp)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/EYgcf7EX)
@@ -322,7 +323,7 @@ call("create_issue", arguments={"owner": "…", "repo": "…", "title": "…"})
 Kitsune MCP re-reads `.env` on every call — which means adding a key instantly activates it. That convenience comes with a responsibility: **`.env` is the single place all your API keys live**. A few practices worth following:
 
 - Add `.env` to `.gitignore` — never commit real keys
-- Use project-level `.env` for project-specific keys; `~/.chameleon/.env` for personal global keys
+- Use project-level `.env` for project-specific keys; `~/.kitsune/.env` for personal global keys
 - Prefer minimal OAuth scopes and fine-grained tokens (e.g. GitHub fine-grained tokens with per-repo permissions)
 - Rotate keys that get exposed; Kitsune MCP picks up the new value immediately without restart
 
@@ -334,7 +335,7 @@ Kitsune MCP re-reads `.env` on every call — which means adding a key instantly
 
 **"What about MCP Inspector?"** — MCP Inspector is a standalone web UI that connects to one server and lets you inspect schemas and call tools manually. It's useful for basic debugging but isolated from real AI workflows. Kitsune MCP tests servers inside actual Claude or Cursor sessions — how an AI really uses them. It adds `test()` scoring, `bench()` latency numbers, side-by-side server comparison, and `craft()` for live endpoint prototyping. It also discovers and installs servers on demand; Inspector requires you to already have one running.
 
-**"What about `mcp-dynamic-proxy`?"** — It hides tools behind `call_tool("brave", "web_search", {...})` — always a wrapper. After `receive("mcp-server-brave-search")`, Kitsune MCP gives you a real native `brave_web_search` with the actual schema. It also can't discover or install packages at runtime.
+**"What about `mcp-dynamic-proxy`?"** — It hides tools behind `call_tool("brave", "web_search", {...})` — always a wrapper. After `shapeshift("mcp-server-brave-search")`, Kitsune MCP gives you a real native `brave_web_search` with the actual schema. It also can't discover or install packages at runtime.
 
 **"Can FastMCP do this natively?"**
 
@@ -380,7 +381,7 @@ Get a free key at [smithery.ai/account/api-keys](https://smithery.ai/account/api
 **Frictionless credentials** — Kitsune MCP re-reads `.env` on every `inspect()`, `shapeshift()`, and `call()`. Add a key mid-session and it takes effect immediately — no restart:
 
 ```
-# .env (CWD, ~/.env, or ~/.chameleon/.env — all checked, CWD wins)
+# .env (CWD, ~/.env, or ~/.kitsune/.env — all checked, CWD wins)
 BRAVE_API_KEY=your-key
 GITHUB_TOKEN=ghp_...
 ```

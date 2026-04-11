@@ -4,7 +4,7 @@ Hi,
 
 I'd love a review of a small open source Python project I've been building called **Kitsune MCP**. It's an MIT-licensed MCP proxy server.
 
-**Repo**: https://github.com/your-org/kitsune-mcp
+**Repo**: https://github.com/kaiser-data/kitsune-mcp
 **Language**: Python 3.11+, uses FastMCP
 **Size**: ~1,500 lines across 7 modules
 
@@ -19,12 +19,12 @@ Most AI clients (Claude Desktop, Cursor, etc.) require you to list MCP servers s
 ```
 # From within Claude or any MCP client:
 search("web search")                          # find available servers
-receive("@modelcontextprotocol/server-brave")   # add their tools instantly
+shapeshift("@modelcontextprotocol/server-brave")   # add their tools instantly
 brave_web_search(query="MCP 2025")            # use them natively
-cast_off()                                         # remove them when done
+shiftback()                                        # remove them when done
 ```
 
-The `receive()` call downloads and starts the target server as a subprocess, then registers its tools into the live MCP session via FastMCP's runtime API. `cast_off()` removes them. The running process is pooled and reused across calls.
+The `shapeshift()` call downloads and starts the target server as a subprocess, then registers its tools into the live MCP session via FastMCP's runtime API. `shiftback()` removes them. The running process is pooled and reused across calls.
 
 ---
 
@@ -66,7 +66,7 @@ Things I'm uncertain about stylistically:
 
 ## 3. Security
 
-The project's fundamental design is that it executes arbitrary npm/pip packages. `receive("some-package")` runs `npx -y some-package` as a subprocess. This is intentional and the core value proposition — but it means I need to be honest about the threat model.
+The project's fundamental design is that it executes arbitrary npm/pip packages. `shapeshift("some-package")` runs `npx -y some-package` as a subprocess. This is intentional and the core value proposition — but it means I need to be honest about the threat model.
 
 **Fixed before this review:**
 
@@ -125,7 +125,7 @@ pip install kitsune-mcp
 
 Or clone and run from source:
 ```bash
-git clone https://github.com/your-org/kitsune-mcp
+git clone https://github.com/kaiser-data/kitsune-mcp
 cd kitsune-mcp
 pip install -e .
 kitsune-mcp

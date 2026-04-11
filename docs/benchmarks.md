@@ -13,7 +13,7 @@ No network access required. All measurements use actual registered tool schemas 
 | Section | What |
 |---------|------|
 | **Profile sizes** | Token cost of the lean (6-tool) and forge (17-tool) profiles as registered by FastMCP |
-| **Savings vs always-on** | Chameleon's total cost vs loading N servers permanently |
+| **Savings vs always-on** | Kitsune's total cost vs loading N servers permanently |
 | **Per-tool breakdown** | Token cost of each individual tool schema |
 
 ## Token count formula
@@ -31,10 +31,10 @@ This matches `_estimate_tokens()` in `kitsune_mcp/utils.py` — the same heurist
 
 ## Interpreting the savings table
 
-The comparison shows chameleon's total overhead **including one active mounted server** vs loading N servers all at once:
+The comparison shows kitsune's total overhead **including one active mounted server** vs loading N servers all at once:
 
-- **Chameleon lean** = 6 lean tools + 1 mounted server (best case per task)
-- **Chameleon forge** = 17 full tools + 1 mounted server
+- **Kitsune lean** = 6 lean tools + 1 mounted server (best case per task)
+- **Kitsune forge** = 17 full tools + 1 mounted server
 - **Always-on baseline** = N × 8 tools × 97 tokens permanently in context
 
 Lean mode is more cost-effective than always-on once you have 2+ servers. Forge becomes cost-effective at 3+ servers.
@@ -50,20 +50,20 @@ Lean mode is more cost-effective than always-on once you have 2+ servers. Forge 
   lean  ( 6 tools / default):    451 tokens
   forge (17 tools / full):     1694 tokens
 
-=== Savings: chameleon vs always-on N servers ===
+=== Savings: kitsune vs always-on N servers ===
   Baseline: 8 tools/server × 97 tokens/tool (representative avg)
 
   2 servers — always-on baseline:  1552 tokens
-    chameleon lean:    1227 tokens  (saves 20%)
-    chameleon forge:   2470 tokens  (costs 59% more)
+    kitsune lean:    1227 tokens  (saves 20%)
+    kitsune forge:   2470 tokens  (costs 59% more)
 
   5 servers — always-on baseline:  3880 tokens
-    chameleon lean:    1227 tokens  (saves 68%)
-    chameleon forge:   2470 tokens  (saves 36%)
+    kitsune lean:    1227 tokens  (saves 68%)
+    kitsune forge:   2470 tokens  (saves 36%)
 
   10 servers — always-on baseline:  7760 tokens
-    chameleon lean:    1227 tokens  (saves 84%)
-    chameleon forge:   2470 tokens  (saves 68%)
+    kitsune lean:    1227 tokens  (saves 84%)
+    kitsune forge:   2470 tokens  (saves 68%)
 
 === Per-tool breakdown ===
   Tool                         Tokens  Profile
