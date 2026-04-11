@@ -203,8 +203,8 @@ def _register_proxy_prompts(transport: "BaseTransport", prompts: list[dict]) -> 
         args_schema = prompt_schema.get("arguments", [])
         _name, _t = name, transport
 
-        async def _proxy(**kwargs) -> str:
-            messages = await _t.get_prompt(_name, kwargs)
+        async def _proxy(**kwargs) -> str:  # noqa: B023
+            messages = await _t.get_prompt(_name, kwargs)  # noqa: B023
             return "\n---\n".join(
                 f"[{m.get('role', 'user')}]: {m.get('content', {}).get('text', '')}"
                 for m in messages

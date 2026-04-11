@@ -1,5 +1,6 @@
 """Tests for tool helper functions: _truncate, _clean_response, _estimate_tokens, _credentials_guide."""
 
+import contextlib
 import json
 import os
 import sys
@@ -220,9 +221,10 @@ class TestConnectServerIdResolution:
     """connect() resolves server_id via registry when no spaces/executor prefix."""
 
     async def test_server_id_resolves_install_cmd(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
         import json as _json
-        from server import ServerInfo, _registry, connect, _process_pool
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from server import ServerInfo, _process_pool, _registry, connect
 
         srv = ServerInfo(
             id="filesystem", name="filesystem", description="",
@@ -264,6 +266,7 @@ class TestConnectServerIdResolution:
     async def test_shell_command_bypasses_registry(self):
         """'npx -y something' should NOT hit the registry."""
         from unittest.mock import AsyncMock, patch
+
         from server import _registry, connect
 
         with patch.object(_registry, "get_server", AsyncMock()) as mock_get, \
@@ -280,19 +283,19 @@ class TestCraftTool:
         from server import mcp, session
         # Clean up any crafted tools from previous tests
         for name in list(session.get("crafted_tools", {}).keys()):
-            try:
+            with contextlib.suppress(Exception):
                 mcp.remove_tool(name)
-            except Exception:
-                pass
         session["crafted_tools"] = {}
         session["shapeshift_tools"] = [t for t in session.get("morphed_tools", [])
                                      if t not in session.get("crafted_tools", {})]
 
     async def test_craft_registers_tool_post(self):
         """craft() with POST registers the tool and records it in session."""
-        import respx
+        from unittest.mock import AsyncMock, MagicMock
+
         import httpx
-        from unittest.mock import MagicMock, AsyncMock
+        import respx
+
         from server import craft, session
 
         ctx = MagicMock()
@@ -317,10 +320,12 @@ class TestCraftTool:
 
     async def test_craft_tool_calls_endpoint(self):
         """Registered proxy actually POSTs to the endpoint."""
-        import respx
+        from unittest.mock import AsyncMock, MagicMock
+
         import httpx
-        from unittest.mock import MagicMock, AsyncMock
-        from server import craft, mcp, session
+        import respx
+
+        from server import craft, mcp
 
         ctx = MagicMock()
         ctx.session = MagicMock()
@@ -350,9 +355,11 @@ class TestCraftTool:
 
     async def test_craft_get_uses_query_params(self):
         """craft() with GET sends args as query string, not body."""
-        import respx
+        from unittest.mock import AsyncMock, MagicMock
+
         import httpx
-        from unittest.mock import MagicMock, AsyncMock
+        import respx
+
         from server import craft, mcp
 
         ctx = MagicMock()
@@ -380,9 +387,11 @@ class TestCraftTool:
 
     async def test_craft_endpoint_error_returns_message(self):
         """HTTP errors from the endpoint are returned as strings, not raised."""
-        import respx
+        from unittest.mock import AsyncMock, MagicMock
+
         import httpx
-        from unittest.mock import MagicMock, AsyncMock
+        import respx
+
         from server import craft, mcp
 
         ctx = MagicMock()
@@ -408,10 +417,12 @@ class TestCraftTool:
 
     async def test_craft_shed_removes_tool(self):
         """shed() removes crafted tools."""
-        import respx
+        from unittest.mock import AsyncMock, MagicMock
+
         import httpx
-        from unittest.mock import MagicMock, AsyncMock
-        from server import craft, cast_off, mcp, session
+        import respx
+
+        from server import cast_off, craft, session
 
         ctx = MagicMock()
         ctx.session = MagicMock()
@@ -433,7 +444,8 @@ class TestCraftTool:
 
     async def test_craft_invalid_name_rejected(self):
         """Names with special characters are rejected."""
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
+
         from server import craft
 
         ctx = MagicMock()
@@ -451,7 +463,8 @@ class TestCraftTool:
 
     async def test_craft_invalid_url_rejected(self):
         """Non-HTTP URLs are rejected."""
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
+
         from server import craft
 
         ctx = MagicMock()
@@ -473,8 +486,9 @@ class TestLeanMorph:
 
     async def test_lean_morph_filters_tools(self):
         """morph(tools=['read_file']) only registers the specified tool."""
-        from unittest.mock import MagicMock, AsyncMock, patch
-        from server import _registry, shapeshift, session, mcp, ServerInfo
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from server import ServerInfo, _registry, session, shapeshift
 
         srv = ServerInfo(
             id="filesystem", name="Filesystem", description="fs",
@@ -508,8 +522,9 @@ class TestLeanMorph:
 
     async def test_full_morph_registers_all_tools(self):
         """morph() with no tools filter registers everything."""
-        from unittest.mock import MagicMock, AsyncMock, patch
-        from server import _registry, shapeshift, session, ServerInfo
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from server import ServerInfo, _registry, session, shapeshift
 
         srv = ServerInfo(
             id="filesystem", name="Filesystem", description="fs",
@@ -559,7 +574,8 @@ class TestMorphCredentialWarning:
         """morph() output includes key() hint when a tool schema references an unset env var."""
         import os
         from unittest.mock import AsyncMock, MagicMock, patch
-        from server import _registry, shapeshift, session
+
+        from server import _registry, shapeshift
 
         # Ensure the env var is NOT set
         env_var = "TEST_CRED_SERVER_API_KEY"
@@ -595,6 +611,7 @@ class TestMorphCredentialWarning:
         """No credential warning when the referenced env var is already set."""
         import os
         from unittest.mock import AsyncMock, MagicMock, patch
+
         from server import _registry, shapeshift
 
         env_var = "TEST_CRED_ALREADY_SET_KEY"
@@ -632,6 +649,7 @@ class TestMorphCredentialWarning:
     async def test_morph_succeeds_when_credential_probe_fails(self):
         """morph() succeeds even if _probe_requirements raises unexpectedly."""
         from unittest.mock import AsyncMock, MagicMock, patch
+
         from server import _registry, shapeshift
 
         srv = self._make_srv()

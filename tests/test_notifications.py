@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server import ServerInfo, _registry, shapeshift, shiftback, session
+from server import ServerInfo, _registry, session, shapeshift, shiftback
 
 
 def _make_ctx(*, tools=True, resources=True, prompts=True):
@@ -60,7 +60,7 @@ class TestMorphNotifications:
 
         with patch.object(_registry, "get_server", AsyncMock(return_value=srv)), \
              patch("kitsune_mcp.tools._register_proxy_tools", return_value=["tool_a"]), \
-             patch("kitsune_mcp.tools._register_proxy_resources", return_value=[]) as mock_rr, \
+             patch("kitsune_mcp.tools._register_proxy_resources", return_value=[]), \
              patch("kitsune_mcp.tools._register_proxy_prompts", return_value=[]), \
              patch("kitsune_mcp.tools.PersistentStdioTransport") as MockT:
             mt = MagicMock()

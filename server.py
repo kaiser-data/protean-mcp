@@ -12,6 +12,7 @@ KITSUNE_TOOLS env var controls which tools are registered:
   KITSUNE_TOOLS=shapeshift,shiftback — exactly those tools
 """
 
+import contextlib
 import os
 
 from dotenv import load_dotenv
@@ -33,15 +34,6 @@ from kitsune_mcp.credentials import (  # noqa: E402, F401
     _save_to_env,
     _smithery_available,
     _to_env_var,
-)
-from kitsune_mcp.shapeshift import (  # noqa: E402, F401
-    _do_shed,
-    _fetch_tools_list,
-    _json_type_to_py,
-    _make_proxy,
-    _register_proxy_prompts,
-    _register_proxy_resources,
-    _register_proxy_tools,
 )
 from kitsune_mcp.official_registry import OfficialMCPRegistry  # noqa: E402, F401
 from kitsune_mcp.probe import (  # noqa: E402, F401
@@ -77,29 +69,38 @@ from kitsune_mcp.session import (  # noqa: E402, F401
     _save_skills,
     session,
 )
+from kitsune_mcp.shapeshift import (  # noqa: E402, F401
+    _do_shed,
+    _fetch_tools_list,
+    _json_type_to_py,
+    _make_proxy,
+    _register_proxy_prompts,
+    _register_proxy_resources,
+    _register_proxy_tools,
+)
 from kitsune_mcp.tools import (  # noqa: E402, F401
     _BASE_TOOL_NAMES,
     auto,
     bench,
     call,
+    cast_off,  # deprecated alias — kept for programmatic callers
     connect,
     craft,
     fetch,
     inspect,
     key,
-    shapeshift,
-    shiftback,
+    mount,  # deprecated alias — kept for programmatic callers
+    receive,  # deprecated alias — kept for programmatic callers
     release,
     run,
     search,
     setup,
+    shapeshift,
+    shiftback,
     skill,
     status,
     test,
-    mount,     # deprecated alias — kept for programmatic callers
-    unmount,   # deprecated alias — kept for programmatic callers
-    receive,   # deprecated alias — kept for programmatic callers
-    cast_off,  # deprecated alias — kept for programmatic callers
+    unmount,  # deprecated alias — kept for programmatic callers
 )
 from kitsune_mcp.transport import (  # noqa: E402, F401
     BaseTransport,
@@ -140,10 +141,8 @@ else:
     _active_tools = _LEAN_TOOLS
 
 for _t in _BASE_TOOL_NAMES - _active_tools:
-    try:
+    with contextlib.suppress(Exception):
         mcp.remove_tool(_t)
-    except Exception:
-        pass
 
 if __name__ == "__main__":
     mcp.run()

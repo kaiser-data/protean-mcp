@@ -3,11 +3,9 @@ import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
-_T = TypeVar("_T")
-
-from kitsune_mcp.constants import (
+from kitsune_mcp.constants import (  # noqa: E402
     GLAMA_REGISTRY_TTL,
     GLAMA_REGISTRY_URL,
     MAX_EXPLORE_DESC,
@@ -15,13 +13,15 @@ from kitsune_mcp.constants import (
     MCP_REGISTRY_IO_URL,
     TIMEOUT_FETCH_URL,
 )
-from kitsune_mcp.credentials import _registry_headers, _smithery_available
-from kitsune_mcp.utils import _estimate_tokens, _get_http_client
+from kitsune_mcp.credentials import _registry_headers, _smithery_available  # noqa: E402
+from kitsune_mcp.utils import _estimate_tokens, _get_http_client  # noqa: E402
+
+_T = TypeVar("_T")
 
 REGISTRY_BASE = "https://registry.smithery.ai"
 
 
-class TTLCache(Generic[_T]):
+class TTLCache(Generic[_T]):  # noqa: UP046
     """Simple time-to-live cache for a single value."""
 
     __slots__ = ("_ttl", "_data", "_expires")
