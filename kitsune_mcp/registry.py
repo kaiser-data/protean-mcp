@@ -696,4 +696,20 @@ class GlamaRegistry(BaseRegistry):
         return next((s for s in servers if s.id == id or s.name == id), None)
 
 
-_registry = MultiRegistry()
+class _LazyMultiRegistry:
+    """Defers MultiRegistry() construction until first use, breaking the circular import
+    between registry.py (defines MultiRegistry) and official_registry.py (imported by
+    MultiRegistry.__init__). All attribute accesses are forwarded to the real instance."""
+
+    _instance: "MultiRegistry | None" = None
+
+    def _get(self) -> "MultiRegistry":
+        if self._instance is None:
+            self.__class__._instance = MultiRegistry()
+        return self._instance
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+
+_registry: MultiRegistry = _LazyMultiRegistry()  # type: ignore[assignment]
