@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch: {}  # allow manual re-run (e.g. when one publish target fails)
 
 jobs:
   pypi:
@@ -82,5 +83,8 @@ jobs:
           sudo mv mcp-publisher /usr/local/bin/mcp-publisher
           mcp-publisher --version
 
+      - name: Login to MCP Registry (GitHub OIDC)
+        run: mcp-publisher login github-oidc
+
       - name: Publish to MCP Registry
-        run: mcp-publisher publish --auth github-oidc
+        run: mcp-publisher publish
