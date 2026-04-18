@@ -5,13 +5,31 @@
   <p><strong>One MCP entry. 10,000+ servers on demand.<br/>Load only the tools you need. Switch instantly. No restarts.</strong></p>
 </div>
 
-[![PyPI](https://img.shields.io/pypi/v/kitsune-mcp?color=blue)](https://pypi.org/project/kitsune-mcp/)
+[![PyPI](https://img.shields.io/pypi/v/kitsune-mcp?color=blue&label=pypi)](https://pypi.org/project/kitsune-mcp/)
+[![npm](https://img.shields.io/npm/v/kitsune-mcp?color=cb3837&label=npm&logo=npm)](https://www.npmjs.com/package/kitsune-mcp)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-8a2be2)](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.kaiser-data%2Fkitsune-mcp)
 [![Python](https://img.shields.io/pypi/pyversions/kitsune-mcp)](https://pypi.org/project/kitsune-mcp/)
 [![CI](https://github.com/kaiser-data/kitsune-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/kaiser-data/kitsune-mcp/actions)
 [![Coverage](https://codecov.io/gh/kaiser-data/kitsune-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/kaiser-data/kitsune-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Smithery](https://smithery.ai/badge/@kaiser-data/kitsune-mcp)](https://smithery.ai/server/@kaiser-data/kitsune-mcp)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/EYgcf7EX)
+
+---
+
+## What's new in v0.9.0
+
+Friction-reduction release focused on first-run onboarding, credential visibility, and agent workflows.
+
+- **`search()` shows credential status per result** — `✅ ready` or `✗ needs BRAVE_API_KEY` inline, so you know before you shapeshift
+- **`shapeshift(server_id, source="local", confirm=True)`** — force a local `npx`/`uvx` install without a Smithery key; `source="smithery"` forces HTTP; `source="official"` requires a verified registry listing
+- **`shiftback(uninstall=True)`** — optionally removes the locally installed package (uvx fully removed via `uv tool uninstall`; npx cache clears automatically)
+- **`KITSUNE_TRUST=community`** env var — skip the `confirm=True` gate permanently for trusted users and agents; set once via `key("KITSUNE_TRUST", "community")`
+- **First-run onboarding in `status()`** — clean sessions now show a 5-step getting-started guide with an example flow
+- **Lean-mounting hint** — after a heavy `shapeshift()` the output suggests `tools=[...]` with a concrete tool name and token cost
+- **Registry failure reporting** — `search()` now shows `⚠️ Skipped: <name> (timeout)` when one registry is slow, so you know results are partial instead of silently incomplete
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list plus internal refactors and bug fixes.
 
 ---
 
