@@ -36,7 +36,7 @@ PROVIDER_PARAM_SUFFIXES = ("provider", "engine", "backend", "service", "mode")
 
 TIMEOUT_PROMPT_LIST  = 5.0
 
-# Source trust tiers — used to gate warnings in morph / call / connect output
+# Source trust tiers — used to gate warnings in shapeshift / call / connect output
 TRUST_HIGH   = {"official"}
 TRUST_MEDIUM = {"mcpregistry", "glama", "smithery"}
 TRUST_LOW    = {"npm", "pypi", "github"}

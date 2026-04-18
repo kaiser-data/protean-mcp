@@ -263,6 +263,8 @@ Every `shapeshift()`, `call()`, and `connect()` result shows where the server co
 | Medium | `mcpregistry`, `glama`, `smithery` | `✓ Source: smithery` |
 | Community | `npm`, `pypi`, `github` | `⚠️ Source: npm (community — not verified)` |
 
+Community servers and `source="local"` installs require `confirm=True` — you're explicitly acknowledging you've reviewed the server before running arbitrary code. To bypass this for servers you already trust, set `KITSUNE_TRUST=community` (via `key("KITSUNE_TRUST", "community")` or your `.env`). This persists across sessions so power users and agents never see the gate again.
+
 ### Install command validation
 
 Before spawning any subprocess, Kitsune MCP validates the executable name:
@@ -400,8 +402,8 @@ key("BRAVE_API_KEY", "your-key")   # writes to .env, active immediately
 
 | Tool | Description |
 |---|---|
-| `shapeshift(server_id, tools)` | Load a server's tools live. `tools=[...]` for lean shapeshift. |
-| `shiftback(kill)` | Remove shapeshifted tools. `kill=True` terminates the process immediately. |
+| `shapeshift(server_id, tools, source, confirm)` | Load a server's tools live. `tools=[...]` for lean load. `source="local"` forces npx/uvx install; `source="smithery"` forces HTTP. |
+| `shiftback(kill, uninstall)` | Remove shapeshifted tools. `kill=True` terminates the process. `uninstall=True` also removes a locally installed package. |
 | `search(query, registry)` | Search MCP servers across registries. |
 | `inspect(server_id)` | Show tools, schemas, and live credential status (✓/✗ per key). |
 | `call(tool_name, server_id, args)` | Call a tool. `server_id` optional when shapeshifted — current form used. |
@@ -492,6 +494,16 @@ call("brave_web_search", arguments={"query": "MCP protocol 2025"})
 shiftback()
 ```
 
+### Local install — no API key needed
+
+```
+# Force local install via npx/uvx — no Smithery key required
+shapeshift("brave", source="local", confirm=True)
+# → spawns npx locally, tools appear natively
+call("brave_web_search", arguments={"query": "MCP 2026"})
+shiftback(uninstall=True)   # remove tools AND uninstall the package
+```
+
 ### Persistent server with setup guidance
 
 ```
@@ -509,12 +521,16 @@ shiftback(kill=True)                    # terminates process, frees RAM
 ## Installation
 
 ```bash
-pip install kitsune-mcp        # from PyPI
+uvx kitsune-mcp                # recommended — uv manages the env automatically
 # or
-git clone https://github.com/kaiser-data/kitsune-mcp && pip install -e .
+pip install kitsune-mcp        # classic pip
+# or
+npx kitsune-mcp                # if you prefer npm (delegates to uvx internally)
 ```
 
 **Requirements:** Python 3.12+ · `node`/`npx` (for npm servers) · `uvx` from [uv](https://github.com/astral-sh/uv) (for pip servers)
+
+> **Tip:** `uvx kitsune-mcp` is the easiest way — uv installs into an isolated env automatically. No venv setup needed.
 
 ---
 

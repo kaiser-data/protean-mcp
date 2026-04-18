@@ -40,6 +40,23 @@ _SHELL_METACHAR_RE = re.compile(r'[&;|$`\n]')
 _PATH_TRAVERSAL_RE = re.compile(r'\.\.[/\\]')
 
 
+def _initialize_request(request_id: int = 1) -> dict:
+    """Canonical MCP `initialize` JSON-RPC request."""
+    return {
+        "jsonrpc": "2.0", "id": request_id, "method": "initialize",
+        "params": {
+            "protocolVersion": MCP_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": MCP_CLIENT_INFO,
+        },
+    }
+
+
+def _initialized_notification() -> dict:
+    """Canonical MCP `notifications/initialized` message (sent after initialize succeeds)."""
+    return {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+
+
 def _validate_install_cmd(cmd: list[str]) -> None:
     """Validate argv[0] of an install command for shell injection and path traversal.
 
@@ -336,14 +353,7 @@ class HTTPSSETransport(BaseTransport):
 
         async def _run():
             client = _get_http_client()
-            r = await _post(client, {
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": MCP_CLIENT_INFO,
-                },
-            })
+            r = await _post(client, _initialize_request())
             if r.status_code in (401, 403):
                 raise PermissionError(f"HTTP {r.status_code}")
             r.raise_for_status()
@@ -353,9 +363,7 @@ class HTTPSSETransport(BaseTransport):
             if init_msg and "error" in init_msg:
                 raise RuntimeError(f"Initialize failed: {init_msg['error']}")
 
-            await _post(client, {
-                "jsonrpc": "2.0", "method": "notifications/initialized", "params": {},
-            }, mcp_session_id)
+            await _post(client, _initialized_notification(), mcp_session_id)
 
             r2 = await _post(client, {
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -424,22 +432,13 @@ class HTTPSSETransport(BaseTransport):
 
         async def _run() -> list[dict]:
             client = _get_http_client()
-            r = await _post(client, {
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": MCP_CLIENT_INFO,
-                },
-            })
+            r = await _post(client, _initialize_request())
             if r.status_code in (401, 403):
                 raise PermissionError(f"HTTP {r.status_code}")
             r.raise_for_status()
             mcp_session_id = r.headers.get("mcp-session-id")
 
-            await _post(client, {
-                "jsonrpc": "2.0", "method": "notifications/initialized", "params": {},
-            }, mcp_session_id)
+            await _post(client, _initialized_notification(), mcp_session_id)
 
             r2 = await _post(client, {
                 "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
@@ -490,15 +489,7 @@ class StdioTransport(BaseTransport):
 
         try:
             # 1. Initialize (allow extra time for first-run package download)
-            init_req = {
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": MCP_CLIENT_INFO,
-                },
-            }
-            proc.stdin.write(self._frame(init_req))
+            proc.stdin.write(self._frame(_initialize_request()))
             await proc.stdin.drain()
 
             init_resp = await self._read_response(proc.stdout, expected_id=1, timeout=TIMEOUT_STDIO_INIT)
@@ -508,9 +499,7 @@ class StdioTransport(BaseTransport):
                 return f"Initialize error from {self.install_cmd[0]}: {init_resp['error']}"
 
             # 2. Notify initialized + 3. Call tool — batched into one flush
-            proc.stdin.write(self._frame(
-                {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
-            ))
+            proc.stdin.write(self._frame(_initialized_notification()))
             proc.stdin.write(self._frame({
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": tool, "arguments": args},
@@ -590,14 +579,7 @@ class PersistentStdioTransport(BaseTransport):
         )
 
         # MCP initialize handshake
-        proc.stdin.write(self._frame({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": MCP_CLIENT_INFO,
-            },
-        }))
+        proc.stdin.write(self._frame(_initialize_request()))
         await proc.stdin.drain()
 
         init_resp = await StdioTransport._read_response(proc.stdout, expected_id=1, timeout=TIMEOUT_STDIO_INIT)
@@ -608,9 +590,7 @@ class PersistentStdioTransport(BaseTransport):
             proc.kill()
             raise RuntimeError(f"Initialize error: {init_resp['error']}")
 
-        proc.stdin.write(self._frame(
-            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
-        ))
+        proc.stdin.write(self._frame(_initialized_notification()))
         await proc.stdin.drain()
 
         entry.dotenv_revision = _creds._dotenv_revision
@@ -635,95 +615,50 @@ class PersistentStdioTransport(BaseTransport):
                 return entry
         return await self._start_process()
 
-    async def list_tools(self) -> list[dict]:
-        """Ask live process for its tool list via tools/list."""
+    async def _send_request(self, method: str, params: dict, timeout: float) -> dict:
+        """Send a JSON-RPC request on the persistent process and return the result dict ({} on error)."""
         entry = await self._get_or_start()
         async with entry.lock:
             msg_id = entry.next_id
             entry.next_id += 1
             entry.proc.stdin.write(self._frame(
-                {"jsonrpc": "2.0", "id": msg_id, "method": "tools/list", "params": {}}
+                {"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}
             ))
             await entry.proc.stdin.drain()
-
-            resp = await StdioTransport._read_response(
-                entry.proc.stdout, expected_id=msg_id, timeout=TIMEOUT_STDIO_TOOL
+            resp = await _read_stdio_response(
+                entry.proc.stdout, expected_id=msg_id, timeout=timeout
             )
             if not resp or "error" in resp:
-                return []
-            return resp.get("result", {}).get("tools", [])
+                return {}
+            return resp.get("result") or {}
+
+    async def list_tools(self) -> list[dict]:
+        """Ask live process for its tool list via tools/list."""
+        result = await self._send_request("tools/list", {}, TIMEOUT_STDIO_TOOL)
+        return result.get("tools", [])
 
     async def list_resources(self) -> list[dict]:
         """Ask live process for its resource list via resources/list."""
-        entry = await self._get_or_start()
-        async with entry.lock:
-            msg_id = entry.next_id
-            entry.next_id += 1
-            entry.proc.stdin.write(self._frame(
-                {"jsonrpc": "2.0", "id": msg_id, "method": "resources/list", "params": {}}
-            ))
-            await entry.proc.stdin.drain()
-            resp = await StdioTransport._read_response(
-                entry.proc.stdout, expected_id=msg_id, timeout=10.0
-            )
-            if not resp or "error" in resp:
-                return []
-            return resp.get("result", {}).get("resources", [])
+        result = await self._send_request("resources/list", {}, 10.0)
+        return result.get("resources", [])
 
     async def read_resource(self, uri: str) -> str:
         """Read a single resource by URI via resources/read."""
-        entry = await self._get_or_start()
-        async with entry.lock:
-            msg_id = entry.next_id
-            entry.next_id += 1
-            entry.proc.stdin.write(self._frame(
-                {"jsonrpc": "2.0", "id": msg_id, "method": "resources/read",
-                 "params": {"uri": uri}}
-            ))
-            await entry.proc.stdin.drain()
-            resp = await StdioTransport._read_response(
-                entry.proc.stdout, expected_id=msg_id, timeout=10.0
-            )
-            if not resp or "error" in resp:
-                return ""
-            contents = resp.get("result", {}).get("contents", [])
-            # Resource content items use mimeType, not type — extract any text field present
-            return "\n".join(c["text"] for c in contents if "text" in c)
+        result = await self._send_request("resources/read", {"uri": uri}, 10.0)
+        # Resource content items use mimeType, not type — extract any text field present
+        return "\n".join(c["text"] for c in result.get("contents", []) if "text" in c)
 
     async def list_prompts(self) -> list[dict]:
         """Ask live process for its prompt list via prompts/list."""
-        entry = await self._get_or_start()
-        async with entry.lock:
-            msg_id = entry.next_id
-            entry.next_id += 1
-            entry.proc.stdin.write(self._frame(
-                {"jsonrpc": "2.0", "id": msg_id, "method": "prompts/list", "params": {}}
-            ))
-            await entry.proc.stdin.drain()
-            resp = await StdioTransport._read_response(
-                entry.proc.stdout, expected_id=msg_id, timeout=TIMEOUT_PROMPT_LIST
-            )
-            if not resp or "error" in resp:
-                return []
-            return resp.get("result", {}).get("prompts", [])
+        result = await self._send_request("prompts/list", {}, TIMEOUT_PROMPT_LIST)
+        return result.get("prompts", [])
 
     async def get_prompt(self, name: str, arguments: dict) -> list[dict]:
         """Fetch a rendered prompt by name via prompts/get."""
-        entry = await self._get_or_start()
-        async with entry.lock:
-            msg_id = entry.next_id
-            entry.next_id += 1
-            entry.proc.stdin.write(self._frame(
-                {"jsonrpc": "2.0", "id": msg_id, "method": "prompts/get",
-                 "params": {"name": name, "arguments": arguments}}
-            ))
-            await entry.proc.stdin.drain()
-            resp = await StdioTransport._read_response(
-                entry.proc.stdout, expected_id=msg_id, timeout=TIMEOUT_PROMPT_LIST
-            )
-            if not resp or "error" in resp:
-                return []
-            return resp.get("result", {}).get("messages", [])
+        result = await self._send_request(
+            "prompts/get", {"name": name, "arguments": arguments}, TIMEOUT_PROMPT_LIST
+        )
+        return result.get("messages", [])
 
     async def execute(self, tool: str, args: dict, config: dict) -> str:
         try:

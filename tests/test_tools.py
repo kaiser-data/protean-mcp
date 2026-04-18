@@ -422,7 +422,7 @@ class TestCraftTool:
         import httpx
         import respx
 
-        from server import cast_off, craft, session
+        from server import craft, session, shiftback
 
         ctx = MagicMock()
         ctx.session = MagicMock()
@@ -439,7 +439,7 @@ class TestCraftTool:
             )
 
         assert "tmp_tool" in session["shapeshift_tools"]
-        await cast_off(ctx)
+        await shiftback(ctx)
         assert "tmp_tool" not in session["shapeshift_tools"]
 
     async def test_craft_invalid_name_rejected(self):

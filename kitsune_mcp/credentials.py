@@ -112,19 +112,18 @@ def _credentials_guide(server_id: str, credentials: dict, resolved: dict) -> str
     missing = {k: v for k, v in credentials.items() if not resolved.get(k)}
     if not missing:
         return ""
+    envs = {k: _to_env_var(k) for k in credentials}
     lines = [f"Server '{server_id}' needs credentials:"]
     for cred_key, desc in credentials.items():
-        env = _to_env_var(cred_key)
-        found = bool(resolved.get(cred_key))
-        status = "✓" if found else "✗"
+        status = "✓" if resolved.get(cred_key) else "✗"
         desc_str = f" — {desc[:60]}" if desc else ""
-        lines.append(f"  {status} {env}{desc_str}")
-    first_var = _to_env_var(next(iter(missing)))
+        lines.append(f"  {status} {envs[cred_key]}{desc_str}")
+    missing_envs = [envs[k] for k in missing]
     lines += [
         "",
         "Add to .env:",
-        *[f"  {_to_env_var(k)}=your-value" for k in missing],
-        f"Or: key('{first_var}', 'your-value')",
+        *[f"  {e}=your-value" for e in missing_envs],
+        f"Or: key('{missing_envs[0]}', 'your-value')",
     ]
     return "\n".join(lines)
 
@@ -135,9 +134,9 @@ def _credentials_ready(credentials: dict) -> str:
         return "✅ ready"
     _reload_dotenv()
     missing = [
-        _to_env_var(k) for k in credentials
-        if not os.getenv(_to_env_var(k))
-        and any(_to_env_var(k).endswith(sfx) for sfx in CRED_SUFFIXES)
+        env for k in credentials
+        for env in [_to_env_var(k)]
+        if not os.getenv(env) and any(env.endswith(sfx) for sfx in CRED_SUFFIXES)
     ]
     return "✅ ready" if not missing else f"✗ needs {', '.join(missing)}"
 
@@ -146,14 +145,13 @@ def _credentials_inspect_block(credentials: dict, resolved: dict) -> list[str]:
     """CREDENTIALS section lines for inspect() — shows ✓/✗ per key with .env hints."""
     if not credentials:
         return ["CREDENTIALS: none required", ""]
+    envs = {k: _to_env_var(k) for k in credentials}
     lines = ["CREDENTIALS"]
     for cred_key, desc in credentials.items():
-        env = _to_env_var(cred_key)
-        found = bool(resolved.get(cred_key))
-        status = "✓ found" if found else "✗ missing"
+        status = "✓ found" if resolved.get(cred_key) else "✗ missing"
         desc_str = f" — {desc[:60]}" if desc else ""
-        lines.append(f"  {status}  {env}{desc_str}")
-    missing_envs = [_to_env_var(k) for k in credentials if not resolved.get(k)]
+        lines.append(f"  {status}  {envs[cred_key]}{desc_str}")
+    missing_envs = [envs[k] for k in credentials if not resolved.get(k)]
     if missing_envs:
         lines += ["", "  Add to .env:"] + [f"    {e}=your-value" for e in missing_envs]
     lines.append("")

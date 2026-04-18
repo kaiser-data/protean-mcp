@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-from kitsune_mcp.constants import (  # noqa: E402
+from kitsune_mcp.constants import (
     GLAMA_REGISTRY_TTL,
     GLAMA_REGISTRY_URL,
     MAX_EXPLORE_DESC,
@@ -13,8 +13,8 @@ from kitsune_mcp.constants import (  # noqa: E402
     MCP_REGISTRY_IO_URL,
     TIMEOUT_FETCH_URL,
 )
-from kitsune_mcp.credentials import _registry_headers, _smithery_available  # noqa: E402
-from kitsune_mcp.utils import _estimate_tokens, _get_http_client  # noqa: E402
+from kitsune_mcp.credentials import _registry_headers, _smithery_available
+from kitsune_mcp.utils import _estimate_tokens, _get_http_client
 
 _T = TypeVar("_T")
 
@@ -59,8 +59,8 @@ class ServerInfo:
     id: str
     name: str
     description: str
-    source: str           # "smithery" | "npm"
-    transport: str        # "http" | "stdio"
+    source: str           # "official" | "mcpregistry" | "glama" | "smithery" | "npm" | "pypi" | "github"
+    transport: str        # "http" | "stdio" | "websocket"
     url: str = ""
     install_cmd: list = field(default_factory=list)
     credentials: dict = field(default_factory=dict)  # {field: description}
@@ -386,9 +386,10 @@ class MultiRegistry(BaseRegistry):
             GlamaRegistry(),
             NpmRegistry(),
         ]
-        self._server_cache: dict[str, tuple] = {}   # id → (ServerInfo|None, expires_at)
+        self._server_cache: dict[tuple, tuple] = {}   # (id, source_pref) → (ServerInfo|None, expires_at)
         self._search_cache: dict[tuple, tuple] = {} # (query, limit) → (list, expires_at)
         self.last_registry_errors: dict[str, str] = {}
+        self._reg_names = [type(r).__name__.replace("Registry", "").lower() for r in self._registries]
 
     def bust_cache(self, server_id: str | None = None) -> None:
         """Invalidate cache. Pass server_id to bust a single entry, or None for all."""
@@ -396,7 +397,8 @@ class MultiRegistry(BaseRegistry):
             self._server_cache.clear()
             self._search_cache.clear()
         else:
-            self._server_cache.pop(server_id, None)
+            for key in [k for k in self._server_cache if k[0] == server_id]:
+                del self._server_cache[key]
 
     async def search(self, query: str, limit: int) -> list:
         cache_key = (query, limit)
@@ -407,12 +409,11 @@ class MultiRegistry(BaseRegistry):
                 return cached
 
         self.last_registry_errors = {}
-        reg_names = [type(r).__name__.replace("Registry", "").lower() for r in self._registries]
         tasks = [reg.search(query, limit) for reg in self._registries]
         all_results = await asyncio.gather(*tasks, return_exceptions=True)
         seen: set[str] = set()
         candidates: list[ServerInfo] = []
-        for name, batch in zip(reg_names, all_results, strict=False):
+        for name, batch in zip(self._reg_names, all_results, strict=False):
             if isinstance(batch, Exception):
                 self.last_registry_errors[name] = type(batch).__name__
                 continue

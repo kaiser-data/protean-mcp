@@ -1,8 +1,8 @@
 import asyncio
 import json
-import os
 import re
 import shutil
+import subprocess
 
 import httpx
 
@@ -76,11 +76,14 @@ def _rss_mb(pid: int | None) -> str:
     except OSError:
         pass
     try:
-        # macOS / BSD: use ps
-        result = os.popen(f"ps -o rss= -p {pid}").read().strip()
-        if result:
-            return f"{int(result) // 1024}MB"
-    except Exception:
+        # macOS / BSD: use ps (no shell — pid passed as argv)
+        out = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=2, check=False,
+        ).stdout.strip()
+        if out:
+            return f"{int(out) // 1024}MB"
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         pass
     return ""
 

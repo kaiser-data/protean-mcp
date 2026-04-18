@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import dataclasses
+import inspect as _inspect
 import ipaddress
 import json
 import os
@@ -50,7 +51,7 @@ from kitsune_mcp.registry import (
 from kitsune_mcp.session import _save_skills, session
 from kitsune_mcp.shapeshift import (
     _do_shed,
-    _fetch_tools_list,
+    _json_type_to_py,
     _register_proxy_prompts,
     _register_proxy_resources,
     _register_proxy_tools,
@@ -76,6 +77,16 @@ from kitsune_mcp.utils import (
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _track_call(server_id: str, tool_name: str) -> None:
+    """Increment call counter for a server and remember the last tool used."""
+    prior = session["grown"].get(server_id, {"calls": 0})
+    session["grown"][server_id] = {
+        "last_tool": tool_name,
+        "calls": prior["calls"] + 1,
+        "status": "active",
+    }
+
 
 def _get_transport(server_id: str, srv) -> "BaseTransport":
     """Select the right transport for a server_id + optional ServerInfo."""
@@ -151,8 +162,7 @@ async def search(query: str, registry: str = "all", limit: int = 5) -> str:
     lines = [f"SERVERS — '{query}' ({len(servers)} found)\n"]
     # Report any registry failures when searching all registries
     if registry == "all":
-        real_reg = _registry._get() if hasattr(_registry, "_get") else _registry
-        errors = getattr(real_reg, "last_registry_errors", {})
+        errors = getattr(_registry, "last_registry_errors", {})
         if errors:
             failed = ", ".join(f"{n} (timeout)" for n in errors)
             lines.insert(1, f"⚠️  Skipped: {failed}\n")
@@ -262,12 +272,7 @@ async def call(
     transport: BaseTransport = _get_transport(server_id, srv)
     result = await transport.execute(tool_name, arguments, resolved_config)
 
-    prior = session["grown"].get(server_id, {"calls": 0})
-    session["grown"][server_id] = {
-        "last_tool": tool_name,
-        "calls": prior["calls"] + 1,
-        "status": "active",
-    }
+    _track_call(server_id, tool_name)
 
     if srv is not None:
         source = srv.source
@@ -290,12 +295,7 @@ async def run(
     transport = PersistentStdioTransport(cmd)
     result = await transport.execute(tool_name, arguments, {})
 
-    prior = session["grown"].get(package, {"calls": 0})
-    session["grown"][package] = {
-        "last_tool": tool_name,
-        "calls": prior["calls"] + 1,
-        "status": "active",
-    }
+    _track_call(package, tool_name)
     return result
 
 
@@ -545,274 +545,62 @@ async def auto(
     transport: BaseTransport = _get_transport(server_id, srv)
     result = await transport.execute(tool_name, arguments, resolved_config)
 
-    prior = session["grown"].get(server_id, {"calls": 0})
-    session["grown"][server_id] = {
-        "last_tool": tool_name,
-        "calls": prior["calls"] + 1,
-        "status": "active",
-    }
+    _track_call(server_id, tool_name)
     return result
 
 
 def _infer_install_cmd(server_id: str) -> list[str]:
-    """Infer a local install command from a server ID.
-    npm-style (@scope/pkg or IDs with / or no dots) → npx -y
-    Python-style (contains dots) → uvx
-    """
+    """npm-style (@scope/pkg, has /, no dots) → npx -y; Python-style (has dots) → uvx."""
     if server_id.startswith("@") or "/" in server_id or "." not in server_id:
         return ["npx", "-y", server_id]
     return ["uvx", server_id]
 
 
 def _local_uninstall_cmd(install_cmd: list[str]) -> list[str] | None:
-    """Return an uninstall command for a locally cached package, or None if not applicable.
-    uvx <pkg>    → uv tool uninstall <pkg>
-    npx -y <pkg> → None (npx cache is ephemeral; no targeted uninstall)
-    """
-    if not install_cmd:
-        return None
-    if install_cmd[0] == "uvx" and len(install_cmd) >= 2:
+    """uvx pkg → uv tool uninstall pkg. npx → None (cache is ephemeral)."""
+    if install_cmd and install_cmd[0] == "uvx" and len(install_cmd) >= 2:
         return ["uv", "tool", "uninstall", install_cmd[-1]]
     return None
 
 
-@mcp.tool()
-async def shapeshift(
+async def _commit_shapeshift(
     server_id: str,
+    transport: BaseTransport,
+    tool_schemas: list,
+    resolved_config: dict,
+    tools: list[str] | None,
     ctx: Context,
-    tools: list[str] | None = None,
-    confirm: bool = False,
-    source: str = "auto",
+    pool_key: str | None,
+    trust_note: str,
+    lean_eligible: bool = False,
 ) -> str:
-    """Shapeshift into a server's form. The fox takes on the server's shape — its tools become available natively in the session.
+    """Register tools/resources/prompts, update session, notify client, return output string.
 
-    source: "auto" (default) | "local" (force npx/uvx install) | "smithery" (force HTTP via Smithery) | "official" (official/mcpregistry only)
-    tools: load only specific tools instead of everything
-    confirm: proceed with community (npm/pypi/github) sources after reviewing
+    Called by both the pool-connection path and the registry path of shapeshift() so
+    neither path has to duplicate the ~70-line registration + output block.
     """
-    # 1. Check pool connections first (friendly names from connect() take priority)
-    pool_conn = None
-    for _pk, conn in session["connections"].items():
-        if conn.get("name") == server_id or conn.get("command") == server_id:
-            pool_conn = conn
-            break
-
-    if pool_conn is None:
-        # source="smithery": validate API key exists first
-        if source == "smithery" and not _smithery_available():
-            return (
-                f"Cannot use source='smithery' — SMITHERY_API_KEY is not set.\n\n"
-                f"Set it: key(\"SMITHERY_API_KEY\", \"your-key\")\n"
-                f"Or use: shapeshift(\"{server_id}\", source=\"local\") to install locally."
-            )
-        # Map source to registry source_preference (only for smithery/official — local overrides transport later)
-        reg_source = source if source in ("smithery", "official") else None
-        srv = await _registry.get_server(server_id, source_preference=reg_source)
-    else:
-        srv = None  # use pool path below
-
-    if srv is None and pool_conn is None:
-        return f"Server '{server_id}' not found. Use search() to find servers, or connect() for local servers."
-
-    if pool_conn is not None:
-
-        # Morph from pool connection
-        cmd = pool_conn["command"].split()
-        tool_names = pool_conn.get("tools", [])
-
-        _do_shed()
-
-        transport: BaseTransport = PersistentStdioTransport(cmd)
-        # Fetch full schemas from the live process
-        raw_tools = await transport.list_tools()
-        if not raw_tools and tool_names:
-            raw_tools = [{"name": n, "description": "", "inputSchema": {}} for n in tool_names]
-
-        only = set(tools) if tools else None
-        registered = _register_proxy_tools(server_id, raw_tools, transport, {}, _BASE_TOOL_NAMES, only)
-
-        if not registered:
-            return f"No tools could be shapeshifted from '{server_id}'."
-
-        # Register resources + prompts (best-effort — pool transports support both)
-        shapeshift_resources: list[str] = []
-        shapeshift_prompts: list[str] = []
-        if hasattr(transport, "list_resources"):
-            try:
-                raw_res = await asyncio.wait_for(
-                    transport.list_resources(), timeout=TIMEOUT_RESOURCE_LIST
-                )
-                shapeshift_resources = _register_proxy_resources(transport, raw_res)
-            except Exception:
-                pass
-        if hasattr(transport, "list_prompts"):
-            try:
-                raw_prompts = await asyncio.wait_for(
-                    transport.list_prompts(), timeout=TIMEOUT_PROMPT_LIST
-                )
-                shapeshift_prompts = _register_proxy_prompts(transport, raw_prompts)
-            except Exception:
-                pass
-
-        session["shapeshift_tools"] = registered
-        session["shapeshift_resources"] = shapeshift_resources
-        session["shapeshift_prompts"] = shapeshift_prompts
-        session["current_form"] = server_id
-        session["current_form_pool_key"] = json.dumps(cmd, sort_keys=True)
-
-        with contextlib.suppress(Exception):
-            await ctx.session.send_tool_list_changed()
-        if shapeshift_resources:
-            with contextlib.suppress(Exception):
-                await ctx.session.send_resource_list_changed()
-        if shapeshift_prompts:
-            with contextlib.suppress(Exception):
-                await ctx.session.send_prompt_list_changed()
-
-        # Credential warning (best-effort — probes tool schemas for unreferenced env vars)
-        missing_env: list[str] = []
-        try:
-            reqs = _probe_requirements(raw_tools, "")
-            missing_env = reqs.get("missing_env", [])
-        except Exception:
-            pass
-
-        lean = f" (lean: {', '.join(tools)})" if tools else ""
-        extras = []
-        if shapeshift_resources:
-            extras.append(f"{len(shapeshift_resources)} resource(s)")
-        if shapeshift_prompts:
-            extras.append(f"{len(shapeshift_prompts)} prompt(s)")
-        extra_note = f" + {', '.join(extras)}" if extras else ""
-
-        lines = [
-            f"Shapeshifted into '{server_id}' (pool connection){lean} — {len(registered)} tool(s){extra_note} registered:",
-            *[f"  {t}" for t in registered],
-        ]
-        if shapeshift_resources:
-            shown = ", ".join(shapeshift_resources[:3]) + (" ..." if len(shapeshift_resources) > 3 else "")
-            lines.append(f"Resources ({len(shapeshift_resources)}): {shown}")
-        if shapeshift_prompts:
-            shown = ", ".join(shapeshift_prompts[:3]) + (" ..." if len(shapeshift_prompts) > 3 else "")
-            lines.append(f"Prompts ({len(shapeshift_prompts)}): {shown}")
-        lines += ["", "In this session: call('tool_name', arguments={...})"]
-        lines.append("\n⚠️  Source: pool connection (local — verify command before use)")
-        if missing_env:
-            lines.append("\n⚠️  Credentials may be required — add to .env:")
-            for var in missing_env:
-                lines.append(f"  {var}=your-value")
-            lines.append(f'  Or: key("{missing_env[0]}", "your-value")')
-        return "\n".join(lines)
-
-    # 2. Trust gate — community sources require explicit confirmation
-    srv_source = srv.source if srv else "unknown"
-    trust_level = (os.getenv("KITSUNE_TRUST") or "").lower()
-    _trust_override = trust_level in ("community", "all", "low")
-    if srv_source in TRUST_LOW and not confirm and not _trust_override:
-        return (
-            f"⚠️  '{server_id}' is from {srv_source} (community — not verified by the official MCP registry).\n\n"
-            f"Review before trusting:\n"
-            f"  inspect('{server_id}')  — see tools and credentials\n\n"
-            f"To proceed: shapeshift('{server_id}', confirm=True)\n"
-            f"To always trust community: key(\"KITSUNE_TRUST\", \"community\")"
-        )
-
-    # 2.5 Local install gate — running npx/uvx executes arbitrary code; require confirmation
-    if source == "local" and not confirm and not _trust_override:
-        install_cmd = srv.install_cmd or _infer_install_cmd(server_id)
-        cmd_str = " ".join(install_cmd)
-        return (
-            f"⚠️  source='local' will run: {cmd_str}\n\n"
-            f"This downloads and executes the package locally.\n"
-            f"Review first: inspect('{server_id}')\n\n"
-            f"To proceed: shapeshift('{server_id}', source='local', confirm=True)\n"
-            f"To always trust local installs: key(\"KITSUNE_TRUST\", \"community\")"
-        )
-
-    # 3. Resolve credentials FIRST — don't drop form if we'll fail anyway
-    resolved_config, missing = _resolve_config(srv.credentials, {})
-    if missing:
-        creds_msg = _credentials_guide(server_id, srv.credentials, resolved_config)
-        return f"Cannot shapeshift into '{server_id}' — missing credentials:\n\n{creds_msg}"
-
-    # 4. Drop previous form (only after we know credentials are OK)
-    _do_shed()
-
-    # 4.5 Source overrides — applied after cred check, before transport selection
-    if source == "local":
-        # Force local stdio transport regardless of registry result
-        srv = dataclasses.replace(srv, transport="stdio")
-        if not srv.install_cmd:
-            srv = dataclasses.replace(srv, install_cmd=_infer_install_cmd(server_id))
-        # Record so shiftback(uninstall=True) knows what to clean up
-        session["current_form_local_install"] = {"cmd": srv.install_cmd, "package": server_id}
-    else:
-        session["current_form_local_install"] = None
-
-    if source == "official" and srv.source not in ("official", "mcpregistry"):
-        return (
-            f"No official/verified listing found for '{server_id}' (resolved source: {srv.source}).\n"
-            f"Try: shapeshift(\"{server_id}\") for auto, or shapeshift(\"{server_id}\", source=\"local\")."
-        )
-
-    # 5. Build transport and fetch tool list
-    if srv.transport == "stdio":
-        cmd = srv.install_cmd or ["npx", "-y", server_id]
-        # Always use PersistentStdioTransport so the process stays alive for subsequent calls.
-        # list_tools() starts the process (or reuses the pool entry) and fetches schemas in one boot.
-        transport: BaseTransport = PersistentStdioTransport(cmd)
-        tool_schemas = srv.tools or []
-        if not tool_schemas:
-            try:
-                tool_schemas = await transport.list_tools()
-            except Exception:
-                tool_schemas = []
-        if not tool_schemas:
-            return f"No tools found for '{server_id}'. Try inspect() first."
-    else:
-        transport = _get_transport(server_id, srv)
-        tool_schemas = srv.tools or []
-        if not tool_schemas and hasattr(transport, "list_tools"):
-            # Registry didn't cache tools — fetch live from the server.
-            tool_schemas = await transport.list_tools(resolved_config)
-        if not tool_schemas:
-            return f"No tools found for '{server_id}'. Try inspect() first."
-
-    # 6. Register proxy tools, handling name collisions with base tools
     only = set(tools) if tools else None
     registered = _register_proxy_tools(server_id, tool_schemas, transport, resolved_config, _BASE_TOOL_NAMES, only)
-
     if not registered:
         return f"No tools could be shapeshifted from '{server_id}'."
 
-    # 7. Register resources + prompts (best-effort — only stdio transports support these)
     shapeshift_resources: list[str] = []
     shapeshift_prompts: list[str] = []
     if hasattr(transport, "list_resources"):
-        try:
-            raw_res = await asyncio.wait_for(
-                transport.list_resources(), timeout=TIMEOUT_RESOURCE_LIST
-            )
+        with contextlib.suppress(Exception):
+            raw_res = await asyncio.wait_for(transport.list_resources(), timeout=TIMEOUT_RESOURCE_LIST)
             shapeshift_resources = _register_proxy_resources(transport, raw_res)
-        except Exception:
-            pass
     if hasattr(transport, "list_prompts"):
-        try:
-            raw_prompts = await asyncio.wait_for(
-                transport.list_prompts(), timeout=TIMEOUT_PROMPT_LIST
-            )
+        with contextlib.suppress(Exception):
+            raw_prompts = await asyncio.wait_for(transport.list_prompts(), timeout=TIMEOUT_PROMPT_LIST)
             shapeshift_prompts = _register_proxy_prompts(transport, raw_prompts)
-        except Exception:
-            pass
 
     session["shapeshift_tools"] = registered
     session["shapeshift_resources"] = shapeshift_resources
     session["shapeshift_prompts"] = shapeshift_prompts
     session["current_form"] = server_id
-    # cmd is only defined for stdio transport — HTTP transport has no process pool key
-    session["current_form_pool_key"] = json.dumps(cmd, sort_keys=True) if srv.transport == "stdio" else None
+    session["current_form_pool_key"] = pool_key
 
-    # 8. Notify client of all changed lists
     with contextlib.suppress(Exception):
         await ctx.session.send_tool_list_changed()
     if shapeshift_resources:
@@ -822,20 +610,9 @@ async def shapeshift(
         with contextlib.suppress(Exception):
             await ctx.session.send_prompt_list_changed()
 
-    # 9. Trust / source note
-    transport_label = " via local npx/uvx" if srv.transport == "stdio" else ""
-    if srv_source in TRUST_HIGH | TRUST_MEDIUM:
-        trust_note = f"\n✓  Source: {srv_source}{transport_label}"
-    else:
-        trust_note = f"\n⚠️  Source: {srv_source}{transport_label} (community — not verified by official MCP registry)"
-
-    # 10. Credential warning (best-effort — probes tool schemas for unreferenced env vars)
     missing_env: list[str] = []
-    try:
-        reqs = _probe_requirements(tool_schemas, "")
-        missing_env = reqs.get("missing_env", [])
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        missing_env = _probe_requirements(tool_schemas, "").get("missing_env", [])
 
     lean = f" (lean: {', '.join(tools)})" if tools else ""
     extras = []
@@ -862,15 +639,135 @@ async def shapeshift(
         for var in missing_env:
             lines.append(f"  {var}=your-value")
         lines.append(f'  Or: key("{missing_env[0]}", "your-value")')
-    # Lean hint: if no filter was requested and many tools were loaded
-    if not tools and len(registered) > 4:
+    if lean_eligible and not tools and len(registered) > 4:
         tool_cost = _estimate_tokens(tool_schemas)
-        example_tool = registered[0] if registered else "tool_name"
         lines.append(
             f"\n💡 {len(registered)} tools loaded (~{tool_cost:,} tokens). "
-            f"For lean mounting: shapeshift(\"{server_id}\", tools=[\"{example_tool}\"])"
+            f"For lean mounting: shapeshift(\"{server_id}\", tools=[\"{registered[0]}\"])"
         )
     return "\n".join(lines)
+
+
+@mcp.tool()
+async def shapeshift(
+    server_id: str,
+    ctx: Context,
+    tools: list[str] | None = None,
+    confirm: bool = False,
+    source: str = "auto",
+) -> str:
+    """Shapeshift into a server's form. The fox takes on the server's shape — its tools become available natively in the session.
+
+    source: "auto" (default) | "local" (force npx/uvx install) | "smithery" (force HTTP via Smithery) | "official" (official/mcpregistry only)
+    tools: load only specific tools instead of everything
+    confirm: proceed with community (npm/pypi/github) sources after reviewing
+    """
+    # Pool connections (from connect()) take priority — user already vetted these, bypass trust gates
+    for _pk, conn in session["connections"].items():
+        if conn.get("name") == server_id or conn.get("command") == server_id:
+            cmd = conn["command"].split()
+            tool_names = conn.get("tools", [])
+            _do_shed()
+            session["current_form_local_install"] = None
+
+            transport: BaseTransport = PersistentStdioTransport(cmd)
+            raw_tools = await transport.list_tools()
+            if not raw_tools and tool_names:
+                raw_tools = [{"name": n, "description": "", "inputSchema": {}} for n in tool_names]
+
+            return await _commit_shapeshift(
+                server_id, transport, raw_tools, {}, tools, ctx,
+                json.dumps(cmd, sort_keys=True),
+                "\n⚠️  Source: pool connection (local — verify command before use)",
+            )
+
+    # Registry path — source controls which registries/transports are preferred
+    if source == "smithery" and not _smithery_available():
+        return (
+            f"Cannot use source='smithery' — SMITHERY_API_KEY is not set.\n\n"
+            f"Set it: key(\"SMITHERY_API_KEY\", \"your-key\")\n"
+            f"Or use: shapeshift(\"{server_id}\", source=\"local\") to install locally."
+        )
+
+    reg_source = source if source in ("smithery", "official") else None
+    srv = await _registry.get_server(server_id, source_preference=reg_source)
+    if srv is None:
+        return f"Server '{server_id}' not found. Use search() to find servers, or connect() for local servers."
+
+    srv_source = srv.source
+
+    # Check source constraint first — clearer error than the trust gate when source="official" resolves non-official
+    if source == "official" and srv_source not in ("official", "mcpregistry"):
+        return (
+            f"No official/verified listing found for '{server_id}' (resolved source: {srv_source}).\n"
+            f"Try: shapeshift(\"{server_id}\") for auto, or shapeshift(\"{server_id}\", source=\"local\")."
+        )
+
+    trust_level = (os.getenv("KITSUNE_TRUST") or "").lower()
+    _trust_override = trust_level in ("community", "all", "low")
+
+    if srv_source in TRUST_LOW and not confirm and not _trust_override:
+        return (
+            f"⚠️  '{server_id}' is from {srv_source} (community — not verified by the official MCP registry).\n\n"
+            f"Review before trusting:\n"
+            f"  inspect('{server_id}')  — see tools and credentials\n\n"
+            f"To proceed: shapeshift('{server_id}', confirm=True)\n"
+            f"To always trust community: key(\"KITSUNE_TRUST\", \"community\")"
+        )
+
+    if source == "local" and not confirm and not _trust_override:
+        install_cmd = srv.install_cmd or _infer_install_cmd(server_id)
+        return (
+            f"⚠️  source='local' will run: {' '.join(install_cmd)}\n\n"
+            f"This downloads and executes the package locally.\n"
+            f"Review first: inspect('{server_id}')\n\n"
+            f"To proceed: shapeshift('{server_id}', source='local', confirm=True)\n"
+            f"To always trust local installs: key(\"KITSUNE_TRUST\", \"community\")"
+        )
+
+    # All gates passed — resolve credentials before dropping current form
+    resolved_config, missing = _resolve_config(srv.credentials, {})
+    if missing:
+        creds_msg = _credentials_guide(server_id, srv.credentials, resolved_config)
+        return f"Cannot shapeshift into '{server_id}' — missing credentials:\n\n{creds_msg}"
+
+    _do_shed()
+    session["current_form_local_install"] = None  # overwritten below for source="local"
+
+    if source == "local":
+        install_cmd = srv.install_cmd or _infer_install_cmd(server_id)
+        srv = dataclasses.replace(srv, transport="stdio", install_cmd=install_cmd)
+        session["current_form_local_install"] = {"cmd": srv.install_cmd, "package": server_id}
+
+    if srv.transport == "stdio":
+        cmd = srv.install_cmd or ["npx", "-y", server_id]
+        # PersistentStdioTransport keeps the process alive for subsequent tool calls
+        transport = PersistentStdioTransport(cmd)
+        pool_key: str | None = json.dumps(cmd, sort_keys=True)
+        tool_schemas = srv.tools or []
+        if not tool_schemas:
+            with contextlib.suppress(Exception):
+                tool_schemas = await transport.list_tools()
+    else:
+        transport = _get_transport(server_id, srv)
+        pool_key = None
+        tool_schemas = srv.tools or []
+        if not tool_schemas and hasattr(transport, "list_tools"):
+            tool_schemas = await transport.list_tools(resolved_config)
+
+    if not tool_schemas:
+        return f"No tools found for '{server_id}'. Try inspect() first."
+
+    transport_label = " via local npx/uvx" if srv.transport == "stdio" else ""
+    if srv_source in TRUST_HIGH | TRUST_MEDIUM:
+        trust_note = f"\n✓  Source: {srv_source}{transport_label}"
+    else:
+        trust_note = f"\n⚠️  Source: {srv_source}{transport_label} (community — not verified by official MCP registry)"
+
+    return await _commit_shapeshift(
+        server_id, transport, tool_schemas, resolved_config, tools, ctx,
+        pool_key, trust_note, lean_eligible=True,
+    )
 
 
 @mcp.tool()
@@ -957,47 +854,6 @@ async def shiftback(ctx: Context, kill: bool = False, uninstall: bool = False) -
     return "\n".join(result_lines)
 
 
-# ── Deprecated aliases (Python-level only — NOT registered as MCP tools) ──────
-
-async def shapeshift_alias(server_id: str, ctx: Context, tools: list[str] | None = None, *, _name: str) -> str:
-    import warnings
-    warnings.warn(
-        f"{_name}() is deprecated, use shapeshift() instead. It will be removed in a future version.",
-        DeprecationWarning, stacklevel=3,
-    )
-    return await shapeshift(server_id, ctx, tools)
-
-
-async def mount(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
-    """Deprecated: use shapeshift() instead."""
-    return await shapeshift_alias(server_id, ctx, tools, _name="mount")
-
-
-async def receive(server_id: str, ctx: Context, tools: list[str] | None = None) -> str:
-    """Deprecated: use shapeshift() instead."""
-    return await shapeshift_alias(server_id, ctx, tools, _name="receive")
-
-
-async def unmount(ctx: Context, release: bool = False) -> str:
-    """Deprecated: use shiftback() instead."""
-    import warnings
-    warnings.warn(
-        "unmount() is deprecated, use shiftback() instead. It will be removed in a future version.",
-        DeprecationWarning, stacklevel=2,
-    )
-    return await shiftback(ctx, kill=release)
-
-
-async def cast_off(ctx: Context, release: bool = False) -> str:
-    """Deprecated: use shiftback() instead."""
-    import warnings
-    warnings.warn(
-        "cast_off() is deprecated, use shiftback() instead. It will be removed in a future version.",
-        DeprecationWarning, stacklevel=2,
-    )
-    return await shiftback(ctx, kill=release)
-
-
 @mcp.tool()
 async def craft(
     ctx: Context,
@@ -1009,8 +865,6 @@ async def craft(
     headers: dict | None = None,
 ) -> str:
     """Register a custom tool backed by your HTTP endpoint — live immediately. POST=JSON body, GET=query params. shiftback() removes it."""
-    import inspect as _inspect
-
     if not name or not name.replace("_", "").isalnum():
         return "name must be alphanumeric (underscores allowed)."
     if not url.startswith(("http://", "https://")):
@@ -1024,7 +878,6 @@ async def craft(
     py_params = []
     for pname, pschema in (params or {}).items():
         json_type = pschema.get("type", "string") if isinstance(pschema, dict) else "string"
-        from kitsune_mcp.shapeshift import _json_type_to_py
         ptype = _json_type_to_py(json_type)
         py_params.append(_inspect.Parameter(
             pname, _inspect.Parameter.KEYWORD_ONLY,
@@ -1227,7 +1080,9 @@ async def test(server_id: str, level: str = "basic") -> str:
     if not tools and srv.transport == "stdio":
         cmd = srv.install_cmd or ["npx", "-y", server_id]
         try:
-            tools = await asyncio.wait_for(_fetch_tools_list(cmd), timeout=TIMEOUT_STDIO_INIT)
+            tools = await asyncio.wait_for(
+                PersistentStdioTransport(cmd).list_tools(), timeout=TIMEOUT_STDIO_INIT
+            )
         except TimeoutError:
             tools = []
 
@@ -1253,7 +1108,7 @@ async def test(server_id: str, level: str = "basic") -> str:
     collisions = [t.get("name") for t in tools if t.get("name") in _BASE_TOOL_NAMES]
     if not collisions:
         score += 10
-        checks.append("✅ No name collisions with Chameleon base tools (+10)")
+        checks.append("✅ No name collisions with Kitsune base tools (+10)")
     else:
         checks.append(f"⚠️  Name collisions: {', '.join(collisions)} (0) — will be prefixed on shapeshift()")
 
@@ -1381,7 +1236,7 @@ async def status() -> str:
     grown = session["grown"]
     stats = session["stats"]
     current_form = session["current_form"]
-    morphed = session["shapeshift_tools"]
+    shapeshifted = session["shapeshift_tools"]
 
     lines = ["KITSUNE MCP STATUS", ""]
 
@@ -1402,7 +1257,7 @@ async def status() -> str:
 
     if current_form:
         lines.append(f"CURRENT FORM: {current_form}")
-        lines.append(f"SHAPESHIFTED TOOLS ({len(morphed)}): {', '.join(morphed)}")
+        lines.append(f"SHAPESHIFTED TOOLS ({len(shapeshifted)}): {', '.join(shapeshifted)}")
         lines.append("")
     else:
         lines += ["CURRENT FORM: base (no shapeshift active)", ""]
@@ -1459,13 +1314,13 @@ async def status() -> str:
         lines.append("")
 
     # Token savings vs always-on: sum measured schema costs for inspected servers
-    # that are NOT currently morphed (those would be loaded if always-on).
-    not_morphed = {
+    # that are NOT currently shapeshifted (those would be loaded if always-on).
+    not_shapeshifted = {
         sid: info
         for sid, info in explored.items()
         if info.get("token_cost") and sid != current_form
     }
-    lazy_saved = sum(info["token_cost"] for info in not_morphed.values())
+    lazy_saved = sum(info["token_cost"] for info in not_shapeshifted.values())
 
     lines += [
         "PERFORMANCE STATS",
@@ -1479,7 +1334,7 @@ async def status() -> str:
         avg = stats["tokens_received"] // stats["total_calls"]
         lines.append(f"  Avg response:    ~{avg} tokens")
     if lazy_saved > 0:
-        n = len(not_morphed)
+        n = len(not_shapeshifted)
         lines.append(
             f"  Saved vs always-on: ~{lazy_saved:,} tokens "
             f"[based on {n} inspected schema(s)]"

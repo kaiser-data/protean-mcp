@@ -18,8 +18,6 @@ import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
@@ -668,16 +666,11 @@ class TestSearchRegistryWarning:
             ServerInfo("brave", "Brave", "Web search", "smithery", "http"),
         ]
 
-        # Build a mock registry that has errors
-        mock_real_reg = MagicMock()
-        mock_real_reg.search = AsyncMock(return_value=mock_servers)
-        mock_real_reg.last_registry_errors = {"glama": "TimeoutError"}
+        mock_registry = MagicMock()
+        mock_registry.search = AsyncMock(return_value=mock_servers)
+        mock_registry.last_registry_errors = {"glama": "TimeoutError"}
 
-        mock_proxy = MagicMock()
-        mock_proxy.search = AsyncMock(return_value=mock_servers)
-        mock_proxy._get = MagicMock(return_value=mock_real_reg)
-
-        with patch("kitsune_mcp.tools._registry", mock_proxy):
+        with patch("kitsune_mcp.tools._registry", mock_registry):
             result = await search("web search", registry="all", limit=5)
 
         assert "⚠️" in result
@@ -692,15 +685,11 @@ class TestSearchRegistryWarning:
             ServerInfo("brave", "Brave", "Web search", "smithery", "http"),
         ]
 
-        mock_real_reg = MagicMock()
-        mock_real_reg.search = AsyncMock(return_value=mock_servers)
-        mock_real_reg.last_registry_errors = {}
+        mock_registry = MagicMock()
+        mock_registry.search = AsyncMock(return_value=mock_servers)
+        mock_registry.last_registry_errors = {}
 
-        mock_proxy = MagicMock()
-        mock_proxy.search = AsyncMock(return_value=mock_servers)
-        mock_proxy._get = MagicMock(return_value=mock_real_reg)
-
-        with patch("kitsune_mcp.tools._registry", mock_proxy):
+        with patch("kitsune_mcp.tools._registry", mock_registry):
             result = await search("web search", registry="all", limit=5)
 
         assert "Skipped" not in result

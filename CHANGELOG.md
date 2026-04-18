@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 
 ---
 
+## [0.9.0] — 2026-04-12
+
+### Added
+- **`source=` parameter on `shapeshift()`** — `"local"` forces npx/uvx install (no Smithery key); `"smithery"` forces HTTP; `"official"` requires verified registry listing; `"auto"` (default) keeps current behavior
+- **`shiftback(uninstall=True)`** — optionally uninstalls the locally installed package; uvx packages fully removed (`uv tool uninstall`), npx cache auto-expires
+- **`KITSUNE_TRUST` env var** — set `"community"` to permanently bypass the community/local confirmation gate for trusted users and agents (`key("KITSUNE_TRUST", "community")`)
+- **Credential status in `search()` results** — each row now shows `✅ ready` or `✗ needs API_KEY`
+- **`inspect()` next-step CTA** — ends with `Next: key("VAR", "...") then shapeshift("id")` or `Next: shapeshift("id")` based on credential state
+- **Lean hint after `shapeshift()`** — servers with >4 tools loaded without a filter show `💡 N tools loaded (~X tokens). For lean mounting: shapeshift("id", tools=[...])`
+- **First-run onboarding in `status()`** — clean sessions show a 5-step guide with example flow
+- **Registry failure reporting in `search()`** — timed-out registries shown as `⚠️ Skipped: name (timeout)` so partial results are visible
+
+### Fixed
+- **Credential check before `_do_shed()`** — missing credentials no longer drop your active form before returning the error
+- **`bust_cache(server_id)` now works** — cache uses `(id, source_preference)` tuple keys; old `pop(str)` silently missed every entry
+- **`source="official"` gate ordering** — official-source check fires before the trust gate, giving the right error for non-official servers
+- **Pool path `current_form_local_install` leak** — pool shapeshift clears local install record so stale data can't trigger `uninstall=True` on the wrong package
+
+### Changed
+- `shapeshift()` pool-path and registry-path share a single `_commit_shapeshift()` helper — ~70 lines of duplication removed
+- `_credentials_ready()` calls `_to_env_var(k)` once per key instead of three times
+- `MultiRegistry._reg_names` precomputed at init instead of on every `search()` call
+
+---
+
 ## [0.8.5] — 2026-04-11
 
 ### Fixed

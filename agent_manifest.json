@@ -3,7 +3,7 @@
   "name": "kitsune-mcp",
   "display_name": "Kitsune MCP",
   "description": "The shape-shifting MCP hub. shapeshift() into any MCP server at runtime. 7 registries. No restarts.",
-  "version": "0.2.0",
+  "version": "0.9.0",
   "license": "MIT",
   "repository": "https://github.com/kaiser-data/kitsune-mcp",
   "install": {
@@ -16,8 +16,8 @@
     }
   },
   "capabilities": {
-    "registries": ["smithery", "npm"],
-    "server_count": "3000+",
+    "registries": ["official", "mcpregistry", "smithery", "glama", "npm", "pypi", "github"],
+    "server_count": "10000+",
     "transports": ["http_sse", "stdio", "persistent_stdio"],
     "morphing": true,
     "hardware_support": true,
@@ -42,7 +42,7 @@
     "connect", "release", "test", "bench"
   ],
   "decision_guide": {
-    "use_chameleon_if": [
+    "use_kitsune_if": [
       "You need to call multiple different MCP servers in one session",
       "You want to discover servers without pre-configuring them",
       "You need hardware/audio tools that must stay alive between calls",

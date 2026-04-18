@@ -71,7 +71,6 @@ from kitsune_mcp.session import (  # noqa: E402, F401
 )
 from kitsune_mcp.shapeshift import (  # noqa: E402, F401
     _do_shed,
-    _fetch_tools_list,
     _json_type_to_py,
     _make_proxy,
     _register_proxy_prompts,
@@ -83,14 +82,11 @@ from kitsune_mcp.tools import (  # noqa: E402, F401
     auto,
     bench,
     call,
-    cast_off,  # deprecated alias — kept for programmatic callers
     connect,
     craft,
     fetch,
     inspect,
     key,
-    mount,  # deprecated alias — kept for programmatic callers
-    receive,  # deprecated alias — kept for programmatic callers
     release,
     run,
     search,
@@ -100,7 +96,6 @@ from kitsune_mcp.tools import (  # noqa: E402, F401
     skill,
     status,
     test,
-    unmount,  # deprecated alias — kept for programmatic callers
 )
 from kitsune_mcp.transport import (  # noqa: E402, F401
     BaseTransport,

@@ -79,7 +79,7 @@ def run_benchmark():
     print()
 
     # ── Savings vs always-on ───────────────────────────────────────────────
-    print("=== Savings: chameleon vs always-on N servers ===")
+    print("=== Savings: kitsune vs always-on N servers ===")
     print(
         f"  Baseline: {_TYPICAL_TOOLS_PER_SERVER} tools/server "
         f"× {_TYPICAL_TOKENS_PER_TOOL} tokens/tool (representative avg)"
@@ -98,8 +98,8 @@ def run_benchmark():
             return f"saves {pct}%" if diff >= 0 else f"costs {-pct}% more"
 
         print(f"  {n_servers} servers — always-on baseline: {baseline:5d} tokens")
-        print(f"    chameleon lean:   {with_lean:5d} tokens  ({_note(with_lean)})")
-        print(f"    chameleon forge:  {with_forge:5d} tokens  ({_note(with_forge)})")
+        print(f"    kitsune lean:     {with_lean:5d} tokens  ({_note(with_lean)})")
+        print(f"    kitsune forge:    {with_forge:5d} tokens  ({_note(with_forge)})")
         print()
 
     # ── Per-tool breakdown ─────────────────────────────────────────────────

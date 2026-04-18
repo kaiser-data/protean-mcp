@@ -1,4 +1,3 @@
-import asyncio
 import inspect as _inspect
 import re
 from collections.abc import Callable
@@ -7,20 +6,11 @@ from mcp.server.fastmcp.prompts.base import Prompt as _Prompt
 from mcp.server.fastmcp.resources.types import FunctionResource as _FunctionResource
 
 from kitsune_mcp.app import mcp
-from kitsune_mcp.constants import (
-    MCP_CLIENT_INFO,
-    MCP_PROTOCOL_VERSION,
-    TIMEOUT_RESOURCE_LIST,
-    TIMEOUT_STDIO_INIT,
-    TIMEOUT_STDIO_TOOL,
-)
 from kitsune_mcp.session import session
-from kitsune_mcp.transport import BaseTransport, StdioTransport
+from kitsune_mcp.transport import BaseTransport
 
 # Matches URI template parameters like {path} or {file_name}
 _URI_TEMPLATE_RE = re.compile(r'\{[a-zA-Z_][a-zA-Z0-9_]*\}')
-
-_frame = StdioTransport._frame
 
 
 def _json_type_to_py(json_type: str) -> type:
@@ -34,55 +24,6 @@ def _json_type_to_py(json_type: str) -> type:
         "object": dict,
     }
     return mapping.get(json_type, str)
-
-
-async def _fetch_tools_list(install_cmd: list) -> list[dict]:
-    """Fetch tool list from a stdio MCP server via tools/list JSON-RPC."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *install_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except Exception:
-        return []
-
-    try:
-        init_req = {
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": MCP_CLIENT_INFO,
-            },
-        }
-        proc.stdin.write(_frame(init_req))
-        await proc.stdin.drain()
-
-        init_resp = await StdioTransport._read_response(proc.stdout, expected_id=1, timeout=TIMEOUT_STDIO_INIT)
-        if not init_resp or "error" in init_resp:
-            return []
-
-        proc.stdin.write(_frame({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}))
-        proc.stdin.write(_frame({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}))
-        await proc.stdin.drain()
-
-        tools_resp = await StdioTransport._read_response(proc.stdout, expected_id=2, timeout=TIMEOUT_STDIO_TOOL)
-        if not tools_resp or "error" in tools_resp:
-            return []
-
-        return tools_resp.get("result", {}).get("tools", [])
-
-    except Exception:
-        return []
-    finally:
-        try:
-            proc.stdin.close()
-            proc.kill()
-            await asyncio.wait_for(proc.wait(), timeout=TIMEOUT_RESOURCE_LIST)
-        except Exception:
-            pass
 
 
 def _make_proxy(
@@ -249,7 +190,6 @@ def _register_proxy_tools(
 
     only: if provided, only register tools whose names are in this set (lean shapeshift).
     """
-    import re
     sanitized = re.sub(r'[^a-z0-9_]', '_', server_id.lower())
     registered = []
     for tool_schema in tools:

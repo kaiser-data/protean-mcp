@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kitsune-mcp"
-version = "0.8.5"
+version = "0.9.0"
 description = "The shape-shifting MCP hub — shapeshift() into any MCP server at runtime. 7 registries. No restart."
 readme = "README.md"
 license = { text = "MIT" }
@@ -55,10 +55,6 @@ dev = [
 [project.scripts]
 kitsune-mcp = "server:mcp.run"
 kitsune-forge = "server_forge:mcp.run"
-protean-mcp = "server:mcp.run"       # deprecated alias, remove in v0.9
-protean-forge = "server_forge:mcp.run"  # deprecated alias, remove in v0.9
-chameleon-mcp = "server:mcp.run"     # deprecated alias, remove in v0.9
-chameleon-forge = "server_forge:mcp.run"  # deprecated alias, remove in v0.9
 
 [project.urls]
 Homepage = "https://github.com/kaiser-data/kitsune-mcp"
